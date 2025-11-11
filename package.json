@@ -1,26 +1,36 @@
 {
   "name": "@shakimamf/sprincul",
-  "private": true,
   "version": "0.0.0",
   "type": "module",
-  "files": [
-    "dist"
-  ],
-  "module": "./dist/Sprincul.js",
+  "files": ["dist"],
+  "source": "src/index.ts",
+  "main": "dist/index.js",
   "exports": {
     ".": {
-      "import": "./dist/Sprincul.js"
+      "import": "./dist/index.js"
     }
   },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "preview": "vite preview"
+    "watch": "bun build src/index.ts --target=browser --format=esm --outdir=dist --watch",
+    "build": "bun build src/index.ts --target=browser --format=esm --outdir=dist --minify --sourcemap",
+    "test": "vitest"
+  },
+  "targets": {
+    "main": {
+      "optimize": true,
+      "context": "browser",
+      "includeNodeModules": ["morphdom"]
+    }
   },
   "devDependencies": {
-    "@unocss/preset-wind4": "^66.1.1",
-    "unocss": "^66.1.1",
-    "vite": "^6.3.5"
+    "@parcel/packager-ts": "^2.16.0",
+    "@parcel/transformer-typescript-types": "^2.16.0",
+    "@vitest/ui": "^2.1.9",
+    "happy-dom": "^15.11.7",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.3"
   },
-  "packageManager": "pnpm@9.15.3+sha512.1f79bc245a66eb0b07c5d4d83131240774642caaa86ef7d0434ab47c0d16f66b04e21e0c086eb61e62c77efc4d7f7ec071afad3796af64892fae66509173893a"
+  "dependencies": {
+    "morphdom": "^2.7.7"
+  }
 }
