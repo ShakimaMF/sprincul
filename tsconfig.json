@@ -12,9 +12,7 @@
     "skipLibCheck": true
   },
   "include": [
-    "src/Sprincul.ts",
-    "src/types.ts",
-    "tests"
+    "src"
   ],
   "exclude": [
     "tests"

@@ -1,6 +1,6 @@
 {
   "name": "sprincul",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "A lightweight, browser-side framework for data-binding and state management built on nanostores",
   "type": "module",
   "files": [
