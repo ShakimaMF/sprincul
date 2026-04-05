@@ -10,3 +10,9 @@ node_modules
 .idea
 .fleet
 .DS_Store
+
+# Ignore all .md files in the root ONLY
+/*.md
+
+# Keep the README in the root
+!/README.md

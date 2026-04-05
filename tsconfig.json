@@ -1,7 +1,8 @@
 {
   "compilerOptions": {
-    "target": "es2015",
+    "target": "es2016",
     "module": "es6",
+    "moduleResolution": "bundler",
     "declaration": true,
     "emitDeclarationOnly": true,
     "noEmitOnError": false,
@@ -12,8 +13,10 @@
   },
   "include": [
     "src/Sprincul.ts",
-    "src/utils.ts",
     "src/types.ts",
+    "tests"
+  ],
+  "exclude": [
     "tests"
   ]
 }

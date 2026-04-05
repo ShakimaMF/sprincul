@@ -1,2 +1,1 @@
-export { default as Sprincul } from './Sprincul';
-export type { SprinculModel, SprinculModelRegistry, KeyedHTMLElement } from './types';
+export { default as Sprincul, default as SprinculModel } from './Sprincul';
