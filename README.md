@@ -5,7 +5,7 @@ Sprincul is a lightweight utility for adding **reactivity** to existing HTML wit
 ## Highlights
 
 - State and reactivity are powered by plain JavaScript classes.
-- Built on [nanostores](https://github.com/nanostores/nanostores) for efficient reactive state management.
+- Uses [nanostores](https://github.com/nanostores/nanostores) under the hood for efficient reactive state management.
 - Bind state to the DOM with standard `data-*` attributes.
 - Use familiar event attributes like `onclick` and `oninput`; Sprincul converts them into proper listeners on your model instances.
 - Supports computed properties that automatically update when dependencies change.
@@ -96,6 +96,23 @@ Sprincul.register('Counter', Counter);
 Sprincul.init();
 ```
 
+For bulk registration, use `registerAll` with an object of model names and classes:
+
+```js
+// main.js
+import { Sprincul } from 'sprincul';
+import Counter from './Counter.js';
+import UserProfile from './UserProfile.js';
+import ShoppingCart from './ShoppingCart.js';
+
+Sprincul.registerAll({
+  Counter,
+  UserProfile,
+  ShoppingCart
+});
+Sprincul.init();
+```
+
 During initialization, Sprincul scans the DOM, wires bindings and event listeners, and then runs lifecycle hooks.
 
 ### 3. Annotate your HTML
@@ -115,18 +132,67 @@ Wrap each model in a container marked with `data-model="<Name>"`. Put the bindin
 ## Lifecycle & Hydration
 
 - `Sprincul.init(options?)` wires bindings, computed props, and event handlers, then invokes lifecycle hooks.
-- Pass `{ devMode: true }` to enable development logs in the console.
-- Implement `afterInit()` to run code **after bindings and event listeners are attached**. This is the safest place to hydrate state from APIs, connect to external stores, or kick off async work.
-- Add `data-cloaked` to any section that should stay hidden until initialization completes. Sprincul removes the attribute when setup finishes; you provide the CSS.
+- Implement `afterInit()` to run code **after bindings and event listeners are attached**. This is the safest place to hydrate state from APIs, connect to external stores, or kick off async work. The hook can be sync or async.
+- Add `data-cloaked` to hide elements until initialization completes:
+  - **Model-level**: `<div data-model="Profile" data-cloaked>` uncloaks after that model's `afterInit` hook **completes** (waits for async operations)
+  - **Page-level**: `<body data-cloaked>` uncloaks immediately after **all** models' `afterInit` hooks are **called** (doesn't wait for them to complete)
+  - You provide the CSS; Sprincul removes the attribute at the appropriate time.
+  - **Best Practice:** For models with heavy initialization (API calls, data processing), use model-level cloaking to prevent showing incomplete UI.
+- Use `Sprincul.onReady(callback)` or listen for the `sprincul:ready` event to be notified when all models have been initialized (after all `afterInit` hooks are called). Both provide an array of model information.
 
 ```html
 <style>[data-cloaked]{display:none}</style>
-<div data-model="MyModel" data-cloaked>…</div>
+<!-- Per-model cloaking -->
+<div data-model="Profile" data-cloaked>…</div>
+<!-- Page-level cloaking -->
+<body data-cloaked>
+  <div data-model="Profile">…</div>
+  <div data-model="Settings">…</div>
+</body>
 ```
+
+```js
+// Using the helper method
+Sprincul.onReady((models) => {
+  console.log(`Sprincul initialized ${models.length} models`);
+  // Access each model's information
+  models.forEach(({ name, element }) => {
+    console.log(`Model "${name}" on element:`, element);
+  });
+});
+
+// Or use the DOM event directly
+document.addEventListener('sprincul:ready', ({detail}) => {
+  const { models } = detail;
+  console.log(`Initialized ${models.length} models`);
+  // Access each model's information
+});
+```
+
+### Development Mode
+
+Pass `{ devMode: true }` to `Sprincul.init()` to enable:
+- Development warnings in the console when bindings or handlers are misconfigured
+- Model instance exposure in the `sprincul:ready` event and `onReady` callback
+
+```js
+Sprincul.init({ devMode: true });
+
+Sprincul.onReady((models) => {
+  // In devMode, each model includes the instance property
+  models.forEach(({ name, element, instance }) => {
+    // Direct access to the model instance for debugging
+  });
+});
+```
+
+> **Security Note:** Model instances are excluded from the ready event in production to prevent console access to internal state. Enable `devMode` only during development.
 
 ## Data Bindings
 
 Sprincul reads bindings from attributes shaped like `data-bind-<prop>="<callback>"`. When `this.state.<prop>` changes, Sprincul calls `callback(element)` so your model can update the bound element directly.
+
+> **Important:** Due to HTML's lower-casing of data attributes when building the DOM, state property names referenced in bindings must be lowercase to match the browser's lowercase representation (e.g., `this.state.btntext` not `this.state.btnText`).
 
 ```html
 <section data-model="Profile">
@@ -294,7 +360,7 @@ class MyModel extends SprinculModel {
   constructor(el: HTMLElement) {
     super(el);
     this.state.count = 0;
-    this.state.name = 'World';
+    this.state.name = 'Hello World';
   }
 
   afterInit() {
