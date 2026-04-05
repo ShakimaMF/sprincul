@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import Sprincul from '../../src/Sprincul.ts';
+import { Sprincul } from "../../src"
 import { waitForDomUpdate } from '../helpers.ts';
 
 describe('Sprincul.store', () => {

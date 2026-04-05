@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import { expect, test, describe, beforeEach, afterEach, spyOn } from "bun:test";
-import Sprincul from '../../src/Sprincul.ts';
+import { Sprincul, SprinculModel } from "../../src"
 
 describe('Sprincul - Initialization', () => {
   let container: HTMLElement;
@@ -21,7 +21,7 @@ describe('Sprincul - Initialization', () => {
       </div>
     `;
 
-    class TestModel extends Sprincul {
+    class TestModel extends SprinculModel {
       constructor(element: HTMLElement) {
         super(element);
         this.state.message = 'Hello';
@@ -39,17 +39,82 @@ describe('Sprincul - Initialization', () => {
     expect(span?.textContent).toBe('Hello');
   });
 
-  test('removes data-cloaked attribute after initialization', () => {
+  test('registerAll registers multiple models at once', () => {
+    container.innerHTML = `
+      <div data-model="UserModel">
+        <span data-bind-name="showName"></span>
+      </div>
+      <div data-model="ProductModel">
+        <span data-bind-title="showTitle"></span>
+      </div>
+      <div data-model="CartModel">
+        <span data-bind-count="showCount"></span>
+      </div>
+    `;
+
+    class UserModel extends SprinculModel {
+      constructor(element: HTMLElement) {
+        super(element);
+        this.state.name = 'John Doe';
+      }
+
+      showName(el: HTMLElement) {
+        el.textContent = this.state.name;
+      }
+    }
+
+    class ProductModel extends SprinculModel {
+      constructor(element: HTMLElement) {
+        super(element);
+        this.state.title = 'Laptop';
+      }
+
+      showTitle(el: HTMLElement) {
+        el.textContent = this.state.title;
+      }
+    }
+
+    class CartModel extends SprinculModel {
+      constructor(element: HTMLElement) {
+        super(element);
+        this.state.count = 3;
+      }
+
+      showCount(el: HTMLElement) {
+        el.textContent = String(this.state.count);
+      }
+    }
+
+    Sprincul.registerAll({
+      UserModel,
+      ProductModel,
+      CartModel
+    });
+    Sprincul.init();
+
+    const userName = container.querySelector('[data-bind-name]');
+    const productTitle = container.querySelector('[data-bind-title]');
+    const cartCount = container.querySelector('[data-bind-count]');
+
+    expect(userName?.textContent).toBe('John Doe');
+    expect(productTitle?.textContent).toBe('Laptop');
+    expect(cartCount?.textContent).toBe('3');
+  });
+
+  test('removes data-cloaked attribute after initialization', async () => {
     container.innerHTML = `
       <div data-model="TestModel" data-cloaked>
         <span>Content</span>
       </div>
     `;
 
-    class TestModel extends Sprincul {}
+    class TestModel extends SprinculModel {}
 
     Sprincul.register('TestModel', TestModel);
     Sprincul.init();
+    
+    // Wait a tick for the init promise to resolve and remove cloaks
+    await new Promise(resolve => setTimeout(resolve, 0));
 
     const model = container.querySelector('[data-model="TestModel"]');
     expect(model?.hasAttribute('data-cloaked')).toBe(false);
@@ -58,7 +123,7 @@ describe('Sprincul - Initialization', () => {
   test('logs an error when afterInit throws', async () => {
     container.innerHTML = `<div data-model="AfterInitErrorModel"></div>`;
 
-    class AfterInitErrorModel extends Sprincul {
+    class AfterInitErrorModel extends SprinculModel {
       afterInit() {
         throw new Error('hook failed');
       }
@@ -85,7 +150,7 @@ describe('Sprincul - Initialization', () => {
       </div>
     `;
 
-    class DevModeModel extends Sprincul {}
+    class DevModeModel extends SprinculModel {}
 
     Sprincul.register('DevModeModel', DevModeModel);
     const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
@@ -98,6 +163,105 @@ describe('Sprincul - Initialization', () => {
     warnSpy.mockRestore();
   });
 
+  test('dispatches sprincul:ready event after all models initialized', () => {
+    container.innerHTML = `
+      <div data-model="Model1"></div>
+      <div data-model="Model2"></div>
+    `;
+
+    class Model1 extends SprinculModel {
+      async afterInit() {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    }
+
+    class Model2 extends SprinculModel {}
+
+    Sprincul.register('Model1', Model1);
+    Sprincul.register('Model2', Model2);
+
+    let eventFired = false;
+    let eventDetail: any;
+
+    document.addEventListener('sprincul:ready', (e: Event) => {
+      eventFired = true;
+      eventDetail = (e as CustomEvent).detail;
+    }, { once: true });
+
+    Sprincul.init({ devMode: true });
+
+    // Event fires immediately after afterInit hooks are called (not after they complete)
+    expect(eventFired).toBe(true);
+    expect(eventDetail.models).toHaveLength(2);
+    expect(eventDetail.models[0]).toHaveProperty('name');
+    expect(eventDetail.models[0]).toHaveProperty('element');
+    expect(eventDetail.models[0]).toHaveProperty('instance');
+  });
+
+  test('Sprincul.onReady() helper works', () => {
+    container.innerHTML = `
+      <div data-model="Model1"></div>
+      <div data-model="Model2"></div>
+      <div data-model="Model3"></div>
+    `;
+
+    class Model1 extends SprinculModel {
+      async afterInit() {
+        await new Promise(resolve => setTimeout(resolve, 5));
+      }
+    }
+
+    class Model2 extends SprinculModel {}
+    class Model3 extends SprinculModel {}
+
+    Sprincul.register('Model1', Model1);
+    Sprincul.register('Model2', Model2);
+    Sprincul.register('Model3', Model3);
+
+    let callbackFired = false;
+    let receivedModels: any[] | undefined;
+
+    Sprincul.onReady((models) => {
+      callbackFired = true;
+      receivedModels = models;
+    });
+
+    Sprincul.init({ devMode: true });
+
+    // Callback fires immediately after afterInit hooks are called (not after they complete)
+    expect(callbackFired).toBe(true);
+    expect(receivedModels).toHaveLength(3);
+    expect(receivedModels![0].name).toBe('Model1');
+    expect(receivedModels![0]).toHaveProperty('instance'); // devMode includes instance
+    expect(receivedModels![1].name).toBe('Model2');
+    expect(receivedModels![2].name).toBe('Model3');
+  });
+
+  test('omits instance in production mode (non-devMode)', async () => {
+    container.innerHTML = `
+      <div data-model="TestModel"></div>
+    `;
+
+    class TestModel extends SprinculModel {}
+
+    Sprincul.register('TestModel', TestModel);
+
+    let receivedModels: any[] | undefined;
+
+    Sprincul.onReady((models) => {
+      receivedModels = models;
+    });
+
+    // Initialize without devMode
+    Sprincul.init();
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(receivedModels).toHaveLength(1);
+    expect(receivedModels![0]).toHaveProperty('name');
+    expect(receivedModels![0]).toHaveProperty('element');
+    expect(receivedModels![0]).not.toHaveProperty('instance'); // No instance in production
+  });
+
   test('processes nested models', () => {
     container.innerHTML = `
       <div data-model="OuterModel">
@@ -108,7 +272,7 @@ describe('Sprincul - Initialization', () => {
       </div>
     `;
 
-    class OuterModel extends Sprincul {
+    class OuterModel extends SprinculModel {
       constructor(element: HTMLElement) {
         super(element);
         this.state.outer = 'Outer';
@@ -119,7 +283,7 @@ describe('Sprincul - Initialization', () => {
       }
     }
 
-    class InnerModel extends Sprincul {
+    class InnerModel extends SprinculModel {
       constructor(element: HTMLElement) {
         super(element);
         this.state.inner = 'Inner';

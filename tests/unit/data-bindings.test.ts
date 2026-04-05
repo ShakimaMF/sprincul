@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
-import { expect, test, describe, beforeEach, afterEach } from "bun:test";
-import Sprincul from '../../src/Sprincul.ts';
+import { expect, test, describe, beforeEach, afterEach, spyOn } from "bun:test";
+import {Sprincul, SprinculModel} from '../../src/index.ts';
 import { waitForDomUpdate } from '../helpers.ts';
 
 describe('Sprincul - Data Bindings', () => {
@@ -24,7 +24,7 @@ describe('Sprincul - Data Bindings', () => {
         </div>
       `;
 
-      class TestModel extends Sprincul {
+      class TestModel extends SprinculModel {
         constructor(element: HTMLElement) {
           super(element);
           this.state.message = 'Hello';
@@ -61,7 +61,7 @@ describe('Sprincul - Data Bindings', () => {
         </div>
       `;
 
-      class TestModel extends Sprincul {
+      class TestModel extends SprinculModel {
         constructor(element: HTMLElement) {
           super(element);
           this.state.title = 'Title';
@@ -108,7 +108,7 @@ describe('Sprincul - Data Bindings', () => {
         </div>
       `;
 
-      class TestModel extends Sprincul {
+      class TestModel extends SprinculModel {
         constructor(element: HTMLElement) {
           super(element);
           this.state.clicked = false;
@@ -151,7 +151,7 @@ describe('Sprincul - Data Bindings', () => {
         </div>
       `;
 
-      class CounterModel extends Sprincul {
+      class CounterModel extends SprinculModel {
         constructor(element: HTMLElement) {
           super(element);
           this.state.count = 0;
@@ -245,7 +245,7 @@ describe('Sprincul - Data Bindings', () => {
         </div>
       `;
 
-      class TestModel extends Sprincul {
+      class TestModel extends SprinculModel {
         constructor(element: HTMLElement) {
           super(element);
           this.state.items = [
@@ -278,7 +278,7 @@ describe('Sprincul - Data Bindings', () => {
         </div>
       `;
 
-      class TestModel extends Sprincul {
+      class TestModel extends SprinculModel {
         constructor(element: HTMLElement) {
           super(element);
           this.state.items = [{ id: 1, name: 'Item 1' }];
@@ -329,7 +329,7 @@ describe('Sprincul - Data Bindings', () => {
 
       let callCount = 0;
 
-      class PurgeModel extends Sprincul {
+      class PurgeModel extends SprinculModel {
         constructor(element: HTMLElement) {
           super(element);
           this.state.message = 'Hello';
@@ -383,7 +383,7 @@ describe('Sprincul - Data Bindings', () => {
 
       let safeCallCount = 0;
 
-      class TestModel extends Sprincul {
+      class TestModel extends SprinculModel {
         constructor(element: HTMLElement) {
           super(element);
           this.state.count = 0;

@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import { expect, test, describe, beforeEach, afterEach } from "bun:test";
-import Sprincul from '../../src/Sprincul.ts';
+import { Sprincul, SprinculModel } from "../../src"
 import { waitForDomUpdate } from '../helpers.ts';
 
 describe('Sprincul - State Management', () => {
@@ -23,7 +23,7 @@ describe('Sprincul - State Management', () => {
       </div>
     `;
 
-    class TestModel extends Sprincul {
+    class TestModel extends SprinculModel {
       constructor(element: HTMLElement) {
         super(element);
         this.state.count = 0;
@@ -61,7 +61,7 @@ describe('Sprincul - State Management', () => {
       </div>
     `;
 
-    class TestModel extends Sprincul {
+    class TestModel extends SprinculModel {
       constructor(element: HTMLElement) {
         super(element);
         this.state.message = 'Initial';
@@ -101,7 +101,7 @@ describe('Sprincul - State Management', () => {
       </div>
     `;
 
-    class TestModel extends Sprincul {
+    class TestModel extends SprinculModel {
       constructor(element: HTMLElement) {
         super(element);
         this.state.count = 5;
@@ -141,7 +141,7 @@ describe('Sprincul - State Management', () => {
 
     let callCount = 0;
 
-    class TestModel extends Sprincul {
+    class TestModel extends SprinculModel {
       constructor(element: HTMLElement) {
         super(element);
         this.state.count = 0;
