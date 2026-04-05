@@ -228,68 +228,61 @@ var map = (initial = {}) => {
   };
   return $map;
 };
-// src/Sprincul.ts
-class Sprincul {
-  $el;
-  $state;
-  state;
+// src/SprinculCore.ts
+class SprinculCore {
+  instance;
+  devMode;
   #bindings = new Map;
   #computed = new Map;
   #mutationObserver;
   #pendingUpdates = new Set;
   #updateScheduled = false;
-  static #devMode = false;
-  static #registry = new Map;
-  static #globalStores = new Map;
-  static #processedElements = new WeakSet;
-  static #instanceRegistry = new WeakMap;
-  static store = {
-    get(key) {
-      const store = Sprincul.#globalStores.get(key);
-      return store ? store.get() : undefined;
-    },
-    set(key, value) {
-      if (!Sprincul.#globalStores.has(key)) {
-        Sprincul.#globalStores.set(key, atom(value));
-      }
-      Sprincul.#globalStores.get(key).set(value);
-    },
-    subscribe(key, callback) {
-      if (!Sprincul.#globalStores.has(key)) {
-        Sprincul.#globalStores.set(key, atom());
-      }
-      return Sprincul.#globalStores.get(key).listen(callback);
-    },
-    clear() {
-      Sprincul.#globalStores.clear();
-    }
-  };
-  constructor(element) {
-    this.$el = element;
-    this.$state = map({});
-    this.$state.listen((_, __, changed) => {
-      if (!changed)
+  #isBrowser;
+  constructor(instance, devMode = false) {
+    this.instance = instance;
+    this.devMode = devMode;
+    this.#isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
+  }
+  setupBindings(container) {
+    this.#processElementBindings(container);
+    container.querySelectorAll("*").forEach((el) => {
+      const element = el;
+      const closestModelElement = element.closest("[data-model]");
+      if (element.hasAttribute("data-model") && element !== container)
         return;
-      this.#scheduleUpdate(changed);
+      if (closestModelElement !== this.instance.$el)
+        return;
+      this.#processElementBindings(element);
     });
-    this.#setupStateProxy();
-    Sprincul.#instanceRegistry.set(this, (container) => this.#setupBindings(container));
-  }
-  static register(name, modelClass) {
-    Sprincul.#registry.set(name, modelClass);
-  }
-  static init(options) {
-    if (options?.devMode) {
-      Sprincul.#devMode = true;
+    if (this.#isBrowser) {
+      this.#mutationObserver = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          for (const node of mutation.removedNodes) {
+            if (!(node instanceof HTMLElement))
+              continue;
+            this.#purgeElement(node);
+            node.querySelectorAll("*").forEach((child) => {
+              if (child instanceof HTMLElement)
+                this.#purgeElement(child);
+            });
+          }
+        }
+      });
+      this.#mutationObserver?.observe(this.instance.$el, { childList: true, subtree: true });
     }
-    document.querySelectorAll("[data-model]").forEach((element) => {
-      Sprincul.processModelElement(element);
-    });
-    document.querySelectorAll("[data-cloaked]").forEach((element) => {
-      element.removeAttribute("data-cloaked");
-    });
   }
-  #scheduleUpdate(key) {
+  registerComputed(key, computedStore2) {
+    this.#computed.set(key, computedStore2);
+  }
+  getComputed(key) {
+    return this.#computed.get(key)?.get();
+  }
+  hasComputed(key) {
+    return this.#computed.has(key);
+  }
+  scheduleUpdate(key) {
+    if (!this.#isBrowser)
+      return;
     this.#pendingUpdates.add(key);
     if (!this.#updateScheduled) {
       this.#updateScheduled = true;
@@ -300,88 +293,11 @@ class Sprincul {
       });
     }
   }
-  #setupStateProxy() {
-    this.state = new Proxy({}, {
-      get: (_, prop) => {
-        if (this.#computed.has(prop)) {
-          return this.#computed.get(prop).get();
-        }
-        return this.$state.get()[prop];
-      },
-      set: (_, prop, value) => {
-        this.$state.setKey(prop, value);
-        return true;
-      }
-    });
-  }
-  static #runHook(instance, methodName) {
-    const hook = Reflect.get(instance, methodName);
-    if (typeof hook !== "function") {
-      return Promise.resolve(undefined);
-    }
-    return Promise.resolve().then(() => hook.call(instance));
-  }
-  static processModelElement(element) {
-    const modelName = element.dataset.model;
-    if (!modelName) {
-      throw new Error('Element is missing a "data-model" attribute');
-    }
-    const ModelClass = this.#registry.get(modelName);
-    if (!ModelClass) {
-      throw new Error(`The model, "${modelName}" is not registered for use.`);
-    }
-    if (Sprincul.#processedElements.has(element))
-      return;
-    Sprincul.#processedElements.add(element);
-    const model = new ModelClass(element);
-    if (!(model instanceof Sprincul)) {
-      throw new Error(`The model, "${modelName}" must be an instance of Sprincul.`);
-    }
-    Sprincul.#instanceRegistry.get(model)?.(element);
-    Sprincul.#instanceRegistry.delete(model);
-    Sprincul.#runHook(model, "afterInit").catch((error) => {
-      console.error('Error in "afterInit" hook call:', error);
-    });
-  }
-  #setupBindings(container = this.$el) {
-    this.#processElementBindings(container);
-    container.querySelectorAll("*").forEach((el) => {
-      const element = el;
-      const closestModelElement = element.closest("[data-model]");
-      if (element.hasAttribute("data-model") && element !== container)
-        return;
-      if (closestModelElement !== this.$el)
-        return;
-      this.#processElementBindings(element);
-    });
-    this.#mutationObserver = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        for (const node of mutation.removedNodes) {
-          if (!(node instanceof HTMLElement))
-            continue;
-          this.#purgeElement(node);
-          node.querySelectorAll("*").forEach((child) => {
-            if (child instanceof HTMLElement)
-              this.#purgeElement(child);
-          });
-        }
-      }
-    });
-    this.#mutationObserver?.observe(this.$el, { childList: true, subtree: true });
-  }
-  addComputedProp(key, fn, dependencies = []) {
-    if (dependencies.length === 0) {
-      console.warn(`[Sprincul] addComputedProp("${key}") called without dependencies. Bound elements will not re-render when the value changes.`);
-    }
-    const computedStore2 = computed(this.$state, fn.bind(this));
-    this.#computed.set(key, computedStore2);
-    if (dependencies.length > 0) {
-      this.$state.listen((_, __, changed) => {
-        if (changed && dependencies.includes(changed)) {
-          this.#scheduleUpdate(key);
-        }
-      });
-    }
+  destroy() {
+    this.#mutationObserver?.disconnect();
+    this.#bindings.clear();
+    this.#computed.clear();
+    this.#pendingUpdates.clear();
   }
   #processElementBindings(element) {
     Array.from(element.attributes).forEach((attr) => {
@@ -389,10 +305,10 @@ class Sprincul {
         const propertyName = attr.name.substring("data-bind-".length);
         const callbackName = attr.value;
         this.#trackBinding(propertyName, element, callbackName);
-        const bindFn = Reflect.get(this, callbackName);
+        const bindFn = Reflect.get(this.instance, callbackName);
         if (typeof bindFn === "function") {
           try {
-            bindFn.call(this, element);
+            bindFn.call(this.instance, element);
           } catch (error) {
             console.error(`Error in binding callback "${callbackName}" for property "${propertyName}":`, error);
           }
@@ -402,11 +318,11 @@ class Sprincul {
       } else if (attr.name.startsWith("on") && attr.name.length > 2) {
         const eventName = attr.name.substring(2);
         const methodName = attr.value;
-        const eventFn = Reflect.get(this, methodName);
+        const eventFn = Reflect.get(this.instance, methodName);
         if (typeof eventFn === "function") {
           element.addEventListener(eventName, (e) => {
             try {
-              eventFn.call(this, e);
+              eventFn.call(this.instance, e);
             } catch (error) {
               console.error(`Error in event handler "${methodName}" for event "${eventName}":`, error);
             }
@@ -441,24 +357,232 @@ class Sprincul {
     });
   }
   #updateElement(binding) {
-    const fn = Reflect.get(this, binding.callback);
+    const fn = Reflect.get(this.instance, binding.callback);
     if (typeof fn === "function") {
       try {
-        fn.call(this, binding.element);
+        fn.call(this.instance, binding.element);
       } catch (error) {
         console.error(`Error in binding callback "${binding.callback}":`, error);
       }
     }
   }
   #warn(message) {
-    if (!Sprincul.#devMode)
+    if (!this.devMode)
       return;
     console.warn(`[Sprincul] ${message}`);
   }
 }
+
+// src/registry.ts
+var FLUSH_PENDING = Symbol("flushPending");
+var cores = new WeakMap;
+function getCore(model) {
+  return cores.get(model);
+}
+function setCore(model, core) {
+  cores.set(model, core);
+}
+function deleteCore(model) {
+  cores.delete(model);
+}
+
+// src/Sprincul.ts
+class Sprincul {
+  static #registry = new Map;
+  static #devMode = false;
+  static #isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
+  static #globalStores = new Map;
+  static #processedElements = new WeakSet;
+  static #readyCallbacks = [];
+  static store = {
+    get(key) {
+      const store = Sprincul.#globalStores.get(key);
+      return store ? store.get() : undefined;
+    },
+    set(key, value) {
+      if (!Sprincul.#globalStores.has(key)) {
+        Sprincul.#globalStores.set(key, atom(value));
+      }
+      Sprincul.#globalStores.get(key).set(value);
+    },
+    subscribe(key, callback) {
+      if (!Sprincul.#globalStores.has(key)) {
+        Sprincul.#globalStores.set(key, atom());
+      }
+      return Sprincul.#globalStores.get(key).listen(callback);
+    },
+    clear() {
+      Sprincul.#globalStores.clear();
+    }
+  };
+  static register(name, modelClass) {
+    Sprincul.#registry.set(name, modelClass);
+  }
+  static registerAll(models) {
+    for (const name in models) {
+      Sprincul.#registry.set(name, models[name]);
+    }
+  }
+  static onReady(callback) {
+    if (!Sprincul.#isBrowser) {
+      console.warn("[Sprincul] onReady() called in non-browser environment.");
+      return;
+    }
+    Sprincul.#readyCallbacks.push(callback);
+  }
+  static init(options) {
+    if (!Sprincul.#isBrowser) {
+      console.warn("[Sprincul] init() called in non-browser environment. Skipping initialization.");
+      return;
+    }
+    Sprincul.#devMode = options?.devMode ?? false;
+    const modelElements = Array.from(document.querySelectorAll("[data-model]"));
+    const modelInfos = [];
+    modelElements.forEach((element) => {
+      const info = Sprincul.processModelElement(element);
+      if (info) {
+        modelInfos.push(info);
+      }
+    });
+    document.querySelectorAll("[data-cloaked]:not([data-model])").forEach((element) => {
+      element.removeAttribute("data-cloaked");
+    });
+    Sprincul.#dispatchReadyEvents(modelInfos);
+  }
+  static processModelElement(element) {
+    const modelName = element.dataset.model;
+    if (!modelName) {
+      throw new Error('Element is missing a "data-model" attribute');
+    }
+    const ModelClass = this.#registry.get(modelName);
+    if (!ModelClass) {
+      throw new Error(`The model, "${modelName}" is not registered for use.`);
+    }
+    if (Sprincul.#processedElements.has(element))
+      return null;
+    Sprincul.#processedElements.add(element);
+    const model = new ModelClass(element);
+    const core = new SprinculCore(model, Sprincul.#devMode);
+    setCore(model, core);
+    if (typeof model[FLUSH_PENDING] === "function") {
+      model[FLUSH_PENDING]();
+    }
+    core.setupBindings(element);
+    Sprincul.#runHook(model, "afterInit").then(() => {
+      if (element.hasAttribute("data-cloaked")) {
+        element.removeAttribute("data-cloaked");
+      }
+    }).catch((error) => {
+      console.error('Error in "afterInit" hook call:', error);
+    });
+    const modelInfo = { name: modelName, element };
+    if (Sprincul.#devMode) {
+      modelInfo.instance = model;
+    }
+    return modelInfo;
+  }
+  static destroy(model) {
+    const core = getCore(model);
+    if (core) {
+      core.destroy();
+      deleteCore(model);
+    }
+  }
+  static #runHook(instance, methodName) {
+    const hook = Reflect.get(instance, methodName);
+    if (typeof hook !== "function") {
+      return Promise.resolve(undefined);
+    }
+    return Promise.resolve().then(() => hook.call(instance));
+  }
+  static #dispatchReadyEvents(models) {
+    const readyEvent = new CustomEvent("sprincul:ready", {
+      bubbles: true,
+      detail: { models }
+    });
+    document.dispatchEvent(readyEvent);
+    Sprincul.#readyCallbacks.forEach((callback) => {
+      try {
+        callback(models);
+      } catch (error) {
+        console.error("Error in onReady callback:", error);
+      }
+    });
+    Sprincul.#readyCallbacks = [];
+  }
+}
+
+// src/SprinculModel.ts
+class SprinculModel {
+  $el;
+  #state;
+  state;
+  #pendingComputed = [];
+  #core;
+  constructor(element) {
+    this.$el = element;
+    this.#state = map({});
+    this.#state.listen((_, __, changed) => {
+      if (!changed)
+        return;
+      const core = this.#core || getCore(this);
+      if (core) {
+        core.scheduleUpdate(changed);
+      }
+    });
+    this.#setupStateProxy();
+  }
+  addComputedProp(key, fn, dependencies = []) {
+    if (dependencies.length === 0) {
+      console.warn(`[Sprincul] addComputedProp("${key}") called without dependencies. Bound elements will not re-render when the value changes.`);
+    }
+    const core = this.#core || getCore(this);
+    if (!core) {
+      this.#pendingComputed.push({ key, fn, dependencies });
+      return;
+    }
+    this.#registerComputedProp(key, fn, dependencies, core);
+  }
+  [FLUSH_PENDING]() {
+    const core = getCore(this);
+    if (!core)
+      return;
+    this.#core = core;
+    this.#pendingComputed.forEach(({ key, fn, dependencies }) => {
+      this.#registerComputedProp(key, fn, dependencies, core);
+    });
+    this.#pendingComputed = [];
+  }
+  #registerComputedProp(key, fn, dependencies, core) {
+    const computedStore2 = computed(this.#state, fn.bind(this));
+    core.registerComputed(key, computedStore2);
+    if (dependencies.length > 0) {
+      this.#state.listen((_, __, changed) => {
+        if (changed && dependencies.includes(changed)) {
+          core.scheduleUpdate(key);
+        }
+      });
+    }
+  }
+  #setupStateProxy() {
+    this.state = new Proxy({}, {
+      get: (_, prop) => {
+        const core = this.#core || getCore(this);
+        if (core?.hasComputed(prop)) {
+          return core?.getComputed(prop);
+        }
+        return this.#state.get()[prop];
+      },
+      set: (_, prop, value) => {
+        this.#state.setKey(prop, value);
+        return true;
+      }
+    });
+  }
+}
 export {
-  Sprincul as SprinculModel,
+  SprinculModel,
   Sprincul
 };
 
-//# debugId=526B5491D7D0952F64756E2164756E21
+//# debugId=15A9DC47D4ABA8FA64756E2164756E21
