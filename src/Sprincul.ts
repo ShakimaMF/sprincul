@@ -53,8 +53,8 @@ export default class Sprincul {
      * Register multiple model classes at once
      */
     static registerAll(models: Record<string, SprinculModelConstructor>) {
-        for (const name in models) {
-            Sprincul.#registry.set(name, models[name]);
+        for (const [name, cls] of Object.entries(models)) {
+            Sprincul.#registry.set(name, cls);
         }
     }
 
@@ -63,7 +63,7 @@ export default class Sprincul {
      */
     static onReady(callback: (models: SprinculModelInfo[]) => void): void {
         if (!Sprincul.#isBrowser) {
-            Sprincul.#warn('onReady() called in non-browser environment.');
+            console.warn('[Sprincul] onReady() called in non-browser environment.');
             return;
         }
 
@@ -75,7 +75,7 @@ export default class Sprincul {
      */
     static init(options?: { devMode?: boolean }): void {
         if (!Sprincul.#isBrowser) {
-            Sprincul.#warn('init() called in non-browser environment. Skipping initialization.');
+            console.warn('[Sprincul] init() called in non-browser environment. Skipping initialization.');
             return;
         }
 
@@ -87,9 +87,13 @@ export default class Sprincul {
         const modelInfos: SprinculModelInfo[] = [];
         
         modelElements.forEach(element => {
-            const info = Sprincul.processModelElement(element as HTMLElement);
-            if (info) {
-                modelInfos.push(info);
+            try {
+                const info = Sprincul.processModelElement(element as HTMLElement);
+                if (info) {
+                    modelInfos.push(info);
+                }
+            } catch (e) {
+                console.error(`[Sprincul] Failed to process model element:`, e);
             }
         });
         
@@ -203,6 +207,7 @@ export default class Sprincul {
             core.destroy();
             deleteCore(model);
         }
+        Sprincul.#processedElements.delete(model.$el);
         Sprincul.#untrackModelInstance(model);
     }
 
@@ -253,10 +258,5 @@ export default class Sprincul {
         });
 
         Sprincul.#readyCallbacks = [];
-    }
-
-    static #warn(message: string): void {
-        if (!Sprincul.#devMode) return;
-        console.warn(`[Sprincul] ${message}`);
     }
 }

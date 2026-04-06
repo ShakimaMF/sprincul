@@ -524,20 +524,20 @@ class Sprincul {
     Sprincul.#registry.set(name, modelClass);
   }
   static registerAll(models) {
-    for (const name in models) {
-      Sprincul.#registry.set(name, models[name]);
+    for (const [name, cls] of Object.entries(models)) {
+      Sprincul.#registry.set(name, cls);
     }
   }
   static onReady(callback) {
     if (!Sprincul.#isBrowser) {
-      Sprincul.#warn("onReady() called in non-browser environment.");
+      console.warn("[Sprincul] onReady() called in non-browser environment.");
       return;
     }
     Sprincul.#readyCallbacks.push(callback);
   }
   static init(options) {
     if (!Sprincul.#isBrowser) {
-      Sprincul.#warn("init() called in non-browser environment. Skipping initialization.");
+      console.warn("[Sprincul] init() called in non-browser environment. Skipping initialization.");
       return;
     }
     Sprincul.#devMode = options?.devMode ?? false;
@@ -545,9 +545,13 @@ class Sprincul {
     const modelElements = Array.from(document.querySelectorAll("[data-model]"));
     const modelInfos = [];
     modelElements.forEach((element) => {
-      const info = Sprincul.processModelElement(element);
-      if (info) {
-        modelInfos.push(info);
+      try {
+        const info = Sprincul.processModelElement(element);
+        if (info) {
+          modelInfos.push(info);
+        }
+      } catch (e) {
+        console.error(`[Sprincul] Failed to process model element:`, e);
       }
     });
     document.querySelectorAll("[data-cloaked]:not([data-model])").forEach((element) => {
@@ -636,6 +640,7 @@ class Sprincul {
       core.destroy();
       deleteCore(model);
     }
+    Sprincul.#processedElements.delete(model.$el);
     Sprincul.#untrackModelInstance(model);
   }
   static #trackModelInstance(modelName, model) {
@@ -678,11 +683,6 @@ class Sprincul {
       }
     });
     Sprincul.#readyCallbacks = [];
-  }
-  static #warn(message) {
-    if (!Sprincul.#devMode)
-      return;
-    console.warn(`[Sprincul] ${message}`);
   }
 }
 
@@ -734,4 +734,4 @@ export {
   Sprincul
 };
 
-//# debugId=6C3FBE4D9FEB64B364756E2164756E21
+//# debugId=80E7C46A28685EA164756E2164756E21
