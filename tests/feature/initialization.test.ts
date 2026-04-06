@@ -55,6 +55,43 @@ describe('Sprincul - Initialization', () => {
     }
   });
 
+  test('onReady callbacks can be re-registered for subsequent init cycles', async () => {
+    const isolatedApi = await loadIsolatedApi();
+    const { Sprincul: IsolatedSprincul, SprinculModel: IsolatedSprinculModel, cleanup } = isolatedApi;
+
+    try {
+      container.innerHTML = `<div data-model="CycleModel"></div>`;
+
+      class CycleModel extends IsolatedSprinculModel {}
+      IsolatedSprincul.register('CycleModel', CycleModel);
+
+      let firstCycleCalls = 0;
+      IsolatedSprincul.onReady(() => {
+        firstCycleCalls += 1;
+      });
+
+      IsolatedSprincul.init();
+      expect(firstCycleCalls).toBe(1);
+
+      // add a new model root and register a new callback for the next init cycle
+      const secondRoot = document.createElement('div');
+      secondRoot.setAttribute('data-model', 'CycleModel');
+      container.appendChild(secondRoot);
+
+      let secondCycleCalls = 0;
+      IsolatedSprincul.onReady(() => {
+        secondCycleCalls += 1;
+      });
+
+      IsolatedSprincul.init();
+
+      expect(firstCycleCalls).toBe(1);
+      expect(secondCycleCalls).toBe(1);
+    } finally {
+      cleanup();
+    }
+  });
+
   test('omits instance in production mode (non-devMode)', async () => {
     const isolatedApi = await loadIsolatedApi();
     const { Sprincul: IsolatedSprincul, SprinculModel: IsolatedSprinculModel, cleanup } = isolatedApi;
@@ -306,4 +343,5 @@ describe('Sprincul - Initialization', () => {
     expect(outerSpan?.textContent).toBe('Outer');
     expect(innerSpan?.textContent).toBe('Inner');
   });
+
 });

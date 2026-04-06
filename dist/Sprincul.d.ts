@@ -1,4 +1,3 @@
-import SprinculModel from './SprinculModel';
 import type { SprinculModelConstructor, SprinculModelInfo } from './types';
 /**
  * @class Sprincul
@@ -35,5 +34,5 @@ export default class Sprincul {
      * Creates both the user model instance and internal core instance
      */
     static processModelElement(element: HTMLElement): SprinculModelInfo | null;
-    static destroy(model: SprinculModel): void;
+    static destroy(modelName: string, element?: HTMLElement): void;
 }

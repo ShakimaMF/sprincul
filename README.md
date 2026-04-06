@@ -1,9 +1,12 @@
 <p style="text-align: center">
   <img width="398" height="125" alt="sprincul" src="https://github.com/user-attachments/assets/4c50f36e-48b0-4a6d-b3c2-6f13a85dbffb" />
   <br />
-  <b>Sprincul</b> is a lightweight, browser-side JS framework for adding reactivity to HTML.
+  <b>Sprincul:</b> Lightweight, browser-side reactivity for HTML.
   <br />
 </p>
+
+## About
+Sprincul is a lightweight, browser-side JS framework for adding reactivity to HTML. It focuses on enhancing existing markup using HTML attributes that map directly to your JavaScript classes.
 
 ## Highlights
 - State and reactivity are powered by plain JavaScript classes.
@@ -371,21 +374,28 @@ class MyModel extends SprinculModel {
 }
 ```
 
-## Testing
+## Limitations
 
-- Synthetic keyboard and input events can be unreliable in DOM emulators; prefer click-based tests or assert state changes directly.
-- Because updates are batched with `requestAnimationFrame`, async tests should wait briefly before asserting DOM output.
+Sprincul assumes the surrounding HTML is relatively stable once `Sprincul.init()` has run. It handles cleanup when its own models are removed, but it does not try to track or rebuild itself around external DOM rewrites. If an already-initialized model root is removed, Sprincul cleans up its own framework references for that root and it's descendants.
 
-```js
-await new Promise((r) => setTimeout(r, 10));
-```
+Sprincul does **not** currently auto-initialize new `data-model` elements that are added to the DOM after `Sprincul.init()` has run. However, if you need this behavior, you can use the following workaround:
+
+- Add your own DOM observer.
+- When you inject new model markup, register any fresh `onReady` callbacks needed for that cycle.
+- Call `Sprincul.init()` again to hydrate newly added model roots (already-initialized roots are skipped).
+
+This pattern works today and requires no additional framework code.
+
+### Why this isn’t automatic
+
+Automatic DOM scanning on every change would hide work behind the scenes and make it harder to predict when things initialize or run, especially in apps that already manage the DOM themselves. Keeping initialization explicit keeps the framework behavior transparent without hidden magic.
 
 ## FAQ
 
 - **Why isn't my `data-bind-*` callback firing?** Make sure the attribute is inside the same `data-model` container as the model instance, the callback name matches a method on your class, and that you mutated `this.state.<prop>` rather than `this.<prop>`.
 - **Do I need a backend or bundler?** No. You can import Sprincul directly through `<script type="module">` from a CDN, your own registry, or your bundler output.
 - **When can I seed `Sprincul.store` values?** Any time: before registering models, before `Sprincul.init()`, or after initialization.
-- **Why isn't my `onReady()` callback being called?** `Sprincul.onReady()` must be registered **before** calling `Sprincul.init()`. Callbacks registered after initialization will not be invoked.
+- **Why isn't my `onReady()` callback being called?** `onReady` callbacks are one-shot per init cycle. Register them before each `Sprincul.init()` call where you want them to run.
 
 ## Examples
 

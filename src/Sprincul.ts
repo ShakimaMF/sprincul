@@ -14,8 +14,10 @@ export default class Sprincul {
     static #isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
     static #globalStores = new Map<string, ReturnType<typeof atom>>();
     static #processedElements = new WeakSet<HTMLElement>();
+    static #instancesByName = new Map<string, Set<SprinculModel>>();
+    static #modelNames = new WeakMap<SprinculModel, string>();
+    static #rootMutationObserver: MutationObserver | null = null;
     static #readyCallbacks: Array<(models: SprinculModelInfo[]) => void> = [];
-    static #initialized: boolean = false;
 
     static store = {
         get<T = any>(key: string): T | undefined {
@@ -65,11 +67,6 @@ export default class Sprincul {
             return;
         }
 
-        if (Sprincul.#initialized) {
-            Sprincul.#warn('onReady() called after Sprincul.init() has completed. Callback will not be invoked. Register callbacks before calling init().');
-            return;
-        }
-
         Sprincul.#readyCallbacks.push(callback);
     }
 
@@ -84,6 +81,7 @@ export default class Sprincul {
 
         // Reset devMode each time init is called, then set it if specified
         Sprincul.#devMode = options?.devMode ?? false;
+        Sprincul.#startRootDetachObserver();
 
         const modelElements = Array.from(document.querySelectorAll('[data-model]'));
         const modelInfos: SprinculModelInfo[] = [];
@@ -101,6 +99,36 @@ export default class Sprincul {
         });
         
         Sprincul.#dispatchReadyEvents(modelInfos);
+    }
+
+    static #startRootDetachObserver(): void {
+        if (!Sprincul.#isBrowser) return;
+        if (Sprincul.#rootMutationObserver) return;
+
+        Sprincul.#rootMutationObserver = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                for (const node of mutation.removedNodes) {
+                    if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                    const removedElement = node as HTMLElement;
+
+                    Sprincul.#destroyRemovedModelRoots(removedElement);
+                    removedElement.querySelectorAll('[data-model]').forEach((nestedRoot) => {
+                        Sprincul.#destroyRemovedModelRoots(nestedRoot as HTMLElement);
+                    });
+                }
+            }
+        });
+
+        Sprincul.#rootMutationObserver.observe(document.body, {
+            childList: true,
+            subtree: true
+        });
+    }
+
+    static #destroyRemovedModelRoots(element: HTMLElement): void {
+        const modelName = element.dataset.model;
+        if (!modelName) return;
+        Sprincul.destroy(modelName, element);
     }
 
     /**
@@ -125,6 +153,7 @@ export default class Sprincul {
         const model = new ModelClass(element);
         const core = new SprinculCore(model, Sprincul.#devMode);
         setCore(model, core);
+        Sprincul.#trackModelInstance(modelName, model);
 
         // Flush any computed props that were added during construction
         if (typeof model[FLUSH_PENDING] === 'function') {
@@ -151,11 +180,51 @@ export default class Sprincul {
         return modelInfo;
     }
 
-    static destroy(model: SprinculModel): void {
+    static destroy(modelName: string, element?: HTMLElement): void {
+        const instances = Sprincul.#instancesByName.get(modelName);
+        if (!instances || instances.size === 0) return;
+
+        if (element) {
+            const target = Array.from(instances).find(instance => instance.$el === element);
+            if (target) {
+                Sprincul.#destroyInstance(target);
+            }
+            return;
+        }
+
+        Array.from(instances).forEach(instance => {
+            Sprincul.#destroyInstance(instance);
+        });
+    }
+
+    static #destroyInstance(model: SprinculModel): void {
         const core = getCore(model);
         if (core) {
             core.destroy();
             deleteCore(model);
+        }
+        Sprincul.#untrackModelInstance(model);
+    }
+
+    static #trackModelInstance(modelName: string, model: SprinculModel): void {
+        if (!Sprincul.#instancesByName.has(modelName)) {
+            Sprincul.#instancesByName.set(modelName, new Set());
+        }
+
+        Sprincul.#instancesByName.get(modelName)!.add(model);
+        Sprincul.#modelNames.set(model, modelName);
+    }
+
+    static #untrackModelInstance(model: SprinculModel): void {
+        const modelName = Sprincul.#modelNames.get(model);
+        if (!modelName) return;
+
+        const instances = Sprincul.#instancesByName.get(modelName);
+        if (!instances) return;
+
+        instances.delete(model);
+        if (instances.size === 0) {
+            Sprincul.#instancesByName.delete(modelName);
         }
     }
 
@@ -184,7 +253,6 @@ export default class Sprincul {
         });
 
         Sprincul.#readyCallbacks = [];
-        Sprincul.#initialized = true;
     }
 
     static #warn(message: string): void {
