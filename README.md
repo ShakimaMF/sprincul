@@ -1,9 +1,11 @@
-# Sprincul
-
-Sprincul is a lightweight utility for adding **reactivity** to existing HTML with plain JavaScript classes and `data-*` attributes.
+<p align="center">
+  <img width="398" height="125" alt="sprincul" src="https://github.com/user-attachments/assets/4c50f36e-48b0-4a6d-b3c2-6f13a85dbffb" />
+  <br />
+  <b>Sprincul</b> is a lightweight, browser-side JS framework for adding reactivity to HTML.
+  <br />
+</p>
 
 ## Highlights
-
 - State and reactivity are powered by plain JavaScript classes.
 - Uses [nanostores](https://github.com/nanostores/nanostores) under the hood for efficient reactive state management.
 - Bind state to the DOM with standard `data-*` attributes.
