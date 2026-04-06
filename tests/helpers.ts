@@ -1,5 +1,21 @@
+// noinspection ES6ConvertVarToLetConst
+
 import { rmSync } from "node:fs";
 import { pathToFileURL } from "node:url";
+
+type IsolatedApi = {
+    Sprincul: any;
+    SprinculModel: any;
+    cleanup: () => void;
+};
+
+declare global {
+    var Sprincul: any;
+    var SprinculModel: any;
+    var container: HTMLElement;
+}
+
+let currentIsolatedApi: IsolatedApi | null = null;
 
 export async function waitForDomUpdate() {
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
@@ -32,4 +48,16 @@ export async function loadIsolatedApi() {
         rmSync(tempRoot, { recursive: true, force: true });
         throw error;
     }
+}
+
+export function setCurrentIsolatedApi(api: IsolatedApi | null) {
+    currentIsolatedApi = api;
+}
+
+export function getCurrentIsolatedApi(): IsolatedApi {
+    if (!currentIsolatedApi) {
+        throw new Error("Global isolated API is not initialized for this test.");
+    }
+
+    return currentIsolatedApi;
 }

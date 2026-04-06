@@ -57,15 +57,14 @@ import { Sprincul } from 'sprincul';
 
 ### 1. Define a model
 
-Each component is a standard JavaScript class that extends `SprinculModel`. Define reactive values on `this.state`, and add methods for UI updates and event handlers.
+Each component is a standard JavaScript class that extends `SprinculModel`. Define reactive values on `this.state` in `beforeInit()`, and add methods for UI updates and event handlers.
 
 ```js
 // Counter.js
 import { SprinculModel } from 'sprincul';
 
 export default class Counter extends SprinculModel {
-  constructor(element) {
-    super(element);
+  beforeInit() {
     this.state.count = 0;
   }
 
@@ -137,7 +136,8 @@ Wrap each model in a container marked with `data-model="<Name>"`. Put the bindin
 ## Lifecycle & Hydration
 
 - `Sprincul.init(options?)` wires bindings, computed props, and event handlers, then invokes lifecycle hooks.
-- Implement `afterInit()` to run code **after bindings and event listeners are attached**. This is the safest place to hydrate state from APIs, connect to external stores, or kick off async work. The hook can be sync or async.
+- Implement `beforeInit()` to add computed properties and run setup code such as state **before bindings are attached**.
+- Implement `afterInit()` to run code **after bindings and event listeners are attached**. This is the safest place to hydrate state from APIs, connect to external stores, or kick off async work.
 - Add `data-cloaked` to hide elements until initialization completes:
   - **Model-level**: `<div data-model="Profile" data-cloaked>` uncloaks after that model's `afterInit` hook **completes** (waits for async operations)
   - **Page-level**: `<body data-cloaked>` uncloaks immediately after **all** models' `afterInit` hooks are **called** (doesn't wait for them to complete)
@@ -210,8 +210,8 @@ Sprincul reads bindings from attributes shaped like `data-bind-<prop>="<callback
 import { SprinculModel } from 'sprincul';
 
 export default class Profile extends SprinculModel {
-  constructor(el) {
-    super(el);
+  beforeInit() {
+    // Initialize state
     this.state.name = '--';
     this.state.email = '--';
   }
@@ -288,8 +288,8 @@ Register derived values with `addComputedProp(name, fn, dependencies)`.
 import { SprinculModel } from 'sprincul';
 
 export default class Totals extends SprinculModel {
-  constructor(el) {
-    super(el);
+  beforeInit() {
+    // Initialize state and add computed props
     this.state.price = 10;
     this.state.qty = 2;
     this.addComputedProp('total', () => this.state.price * this.state.qty, ['price', 'qty']);
@@ -362,8 +362,8 @@ interface MyState {
 class MyModel extends SprinculModel {
   state!: MyState;
 
-  constructor(el: HTMLElement) {
-    super(el);
+  beforeInit() {
+    // Initialize state
     this.state.count = 0;
     this.state.name = 'Hello World';
   }

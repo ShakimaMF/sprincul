@@ -1,6 +1,6 @@
 import {map, type MapStore} from 'nanostores';
 import { SprinculCore } from './SprinculCore';
-import { getCore, FLUSH_PENDING } from './registry';
+import { getCore } from './registry';
 
 /**
  * @class SprinculModel Base class for user models
@@ -12,11 +12,6 @@ export default class SprinculModel {
     readonly #state: MapStore<Record<string, any>>;
     state!: Record<string, any>;
     #core?: SprinculCore;
-    #pendingComputed: Array<{
-        key: string;
-        fn: (() => any) | ((this: SprinculModel) => any);
-        dependencies: string[];
-    }> = [];
 
     constructor(element: HTMLElement) {
         this.$el = element;
@@ -36,8 +31,15 @@ export default class SprinculModel {
     }
 
     /**
+     * Lifecycle hook called before bindings are set up
+     * Override this in your model class to add computed properties
+     * Core is guaranteed to be available at this point
+     */
+    beforeInit?(): void | Promise<void>;
+
+    /**
      * Lifecycle hook called after model initialization
-     * Override this in your model class to perform setup
+     * Override this in your model class to perform setup after bindings are active
      */
     afterInit?(): void | Promise<void>;
 
@@ -52,47 +54,23 @@ export default class SprinculModel {
      * @param dependencies - Array of state keys this computed property depends on.
      *                       Without dependencies, the computed value is still accessible via state
      *                       but bound elements will not re-render when it changes.
-     * @returns Unsubscribe function to manually remove this computed property listener (optional - automatic cleanup on destroy)
+     * @returns Unsubscribe function to manually remove this computed property listener (automatic cleanup on destroy)
      */
     addComputedProp(
         name: string,
         fn: (() => any) | ((this: SprinculModel) => any),
         dependencies: Array<string> = []
-    ): (() => void) | void {
+    ): () => void {
         if (dependencies.length === 0) {
             console.warn(`[Sprincul] addComputedProp("${name}") called without dependencies. Bound elements will not re-render when the value changes.`);
         }
 
         const core = this.#core || getCore(this);
-        
-        // If core doesn't exist yet (called in constructor), buffer for later
         if (!core) {
-            this.#pendingComputed.push({ key: name, fn, dependencies });
-            return;
+            throw new Error(`[Sprincul] addComputedProp("${name}") called before core was available. Call this from beforeInit() instead.`);
         }
 
-        return core.registerComputedFromModel(
-            name,
-            () => Reflect.apply(fn as Function, this, []),
-            dependencies,
-            this.#state
-        );
-    }
-
-    /**
-     * Internal method to flush pending computed properties
-     */
-    [FLUSH_PENDING]() {
-        const core = getCore(this);
-        if (!core) return;
-
-        this.#core = core;
-
-        this.#pendingComputed.forEach(({ key, fn, dependencies }) => {
-            const wrapperFn = () => Reflect.apply(fn as Function, this, [])
-            core.registerComputedFromModel(key, wrapperFn, dependencies, this.#state);
-        });
-
-        this.#pendingComputed = [];
+        const callback = () => Reflect.apply(fn as Function, this, []);
+        return core.registerComputedFromModel(name, callback, dependencies, this.#state) ?? (() => {});
     }
 }

@@ -228,277 +228,21 @@ var map = (initial = {}) => {
   };
   return $map;
 };
-// src/SprinculCore.ts
-class SprinculCore {
-  instance;
-  devMode;
+// src/Sprincul.ts
+class Sprincul {
+  $el;
+  $state;
+  state;
   #bindings = new Map;
   #computed = new Map;
-  #domListeners = new Set;
-  #unsubscribers = new Set;
   #mutationObserver;
   #pendingUpdates = new Set;
   #updateScheduled = false;
-  #isBrowser;
-  constructor(instance, devMode = false) {
-    this.instance = instance;
-    this.devMode = devMode;
-    this.#isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
-  }
-  static createStateProxy(stateStore, getCoreRef) {
-    const getStateValue = (prop) => {
-      if (typeof prop !== "string")
-        return;
-      const core = getCoreRef();
-      if (core?.hasComputed(prop)) {
-        return core.getComputed(prop);
-      }
-      return stateStore.get()[prop];
-    };
-    return new Proxy({}, {
-      get: (_, prop) => {
-        return getStateValue(prop);
-      },
-      set: (_, prop, value) => {
-        if (typeof prop !== "string")
-          return false;
-        stateStore.setKey(prop, value);
-        return true;
-      },
-      deleteProperty: (_, prop) => {
-        if (typeof prop !== "string")
-          return false;
-        const current = stateStore.get();
-        if (!(prop in current))
-          return true;
-        const { [prop]: _deleted, ...next } = current;
-        stateStore.set(next);
-        const core = getCoreRef();
-        core?.scheduleUpdate(prop);
-        return true;
-      },
-      ownKeys: () => {
-        return Reflect.ownKeys(stateStore.get());
-      },
-      has: (_, prop) => {
-        if (typeof prop !== "string")
-          return false;
-        const core = getCoreRef();
-        if (core?.hasComputed(prop))
-          return true;
-        return prop in stateStore.get();
-      },
-      getOwnPropertyDescriptor: (_, prop) => {
-        if (typeof prop !== "string")
-          return;
-        const descriptor = {
-          configurable: true,
-          enumerable: true
-        };
-        const state = stateStore.get();
-        if (prop in state) {
-          return {
-            ...descriptor,
-            writable: true,
-            value: state[prop]
-          };
-        }
-        const core = getCoreRef();
-        if (core?.hasComputed(prop)) {
-          return {
-            ...descriptor,
-            writable: false,
-            value: core.getComputed(prop)
-          };
-        }
-        return;
-      }
-    });
-  }
-  setupBindings(container) {
-    this.#processElementBindings(container);
-    container.querySelectorAll("*").forEach((el) => {
-      const element = el;
-      const closestModelElement = element.closest("[data-model]");
-      if (element.hasAttribute("data-model") && element !== container)
-        return;
-      if (closestModelElement !== this.instance.$el)
-        return;
-      this.#processElementBindings(element);
-    });
-    if (this.#isBrowser) {
-      this.#mutationObserver = new MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-          for (const node of mutation.removedNodes) {
-            if (!(node instanceof HTMLElement))
-              continue;
-            this.#purgeElement(node);
-            node.querySelectorAll("*").forEach((child) => {
-              if (child instanceof HTMLElement)
-                this.#purgeElement(child);
-            });
-          }
-        }
-      });
-      this.#mutationObserver?.observe(this.instance.$el, { childList: true, subtree: true });
-    }
-  }
-  registerComputed(key, computedStore2) {
-    this.#computed.set(key, computedStore2);
-  }
-  getComputed(key) {
-    return this.#computed.get(key)?.get();
-  }
-  hasComputed(key) {
-    return this.#computed.has(key);
-  }
-  registerComputedFromModel(key, fn, dependencies, stateStore) {
-    const computedStore2 = computed(stateStore, fn);
-    this.registerComputed(key, computedStore2);
-    if (dependencies.length > 0) {
-      const unsubscribe = stateStore.listen((_, __, changed) => {
-        if (changed && dependencies.includes(changed)) {
-          this.scheduleUpdate(key);
-        }
-      });
-      this.#unsubscribers.add(unsubscribe);
-      return () => {
-        this.#unsubscribers.delete(unsubscribe);
-        unsubscribe();
-      };
-    }
-  }
-  scheduleUpdate(key) {
-    if (!this.#isBrowser)
-      return;
-    this.#pendingUpdates.add(key);
-    if (!this.#updateScheduled) {
-      this.#updateScheduled = true;
-      requestAnimationFrame(() => {
-        this.#pendingUpdates.forEach((prop) => this.#updateDependentElements(prop));
-        this.#pendingUpdates.clear();
-        this.#updateScheduled = false;
-      });
-    }
-  }
-  destroy() {
-    this.#unsubscribers.forEach((unsubscribe) => unsubscribe());
-    this.#unsubscribers.clear();
-    this.#domListeners.forEach(({ element, type, listener, options }) => {
-      element.removeEventListener(type, listener, options);
-    });
-    this.#domListeners.clear();
-    this.#mutationObserver?.disconnect();
-    this.#bindings.clear();
-    this.#computed.clear();
-    this.#pendingUpdates.clear();
-  }
-  #processElementBindings(element) {
-    Array.from(element.attributes).forEach((attr) => {
-      if (attr.name.startsWith("data-bind-")) {
-        const propertyName = attr.name.substring("data-bind-".length);
-        const callbackName = attr.value;
-        this.#trackBinding(propertyName, element, callbackName);
-        const bindFn = Reflect.get(this.instance, callbackName);
-        if (typeof bindFn === "function") {
-          try {
-            bindFn.call(this.instance, element);
-          } catch (error) {
-            console.error(`Error in binding callback "${callbackName}" for property "${propertyName}":`, error);
-          }
-        } else {
-          this.#warn(`Binding callback "${callbackName}" not found for data-bind-${propertyName}.`);
-        }
-      } else if (attr.name.startsWith("on") && attr.name.length > 2) {
-        const eventName = attr.name.substring(2);
-        const methodName = attr.value;
-        element.removeAttribute(attr.name);
-        const eventFn = Reflect.get(this.instance, methodName);
-        if (typeof eventFn === "function") {
-          const listener = (e) => {
-            try {
-              eventFn.call(this.instance, e);
-            } catch (error) {
-              console.error(`Error in event handler "${methodName}" for event "${eventName}":`, error);
-            }
-          };
-          element.addEventListener(eventName, listener);
-          this.#domListeners.add({ element, type: eventName, listener });
-        } else {
-          this.#warn(`Event handler method "${methodName}" not found for ${attr.name}.`);
-        }
-      }
-    });
-  }
-  #trackBinding(prop, element, callback) {
-    if (!this.#bindings.has(prop)) {
-      this.#bindings.set(prop, new Set);
-    }
-    this.#bindings.get(prop).add({ element, callback });
-  }
-  #purgeElement(element) {
-    this.#bindings.forEach((bindings) => {
-      bindings.forEach((binding) => {
-        if (binding.element === element)
-          bindings.delete(binding);
-      });
-    });
-    this.#domListeners.forEach((record) => {
-      if (record.element !== element)
-        return;
-      record.element.removeEventListener(record.type, record.listener, record.options);
-      this.#domListeners.delete(record);
-    });
-  }
-  #updateDependentElements(prop) {
-    const dependentElements = this.#bindings.get(prop);
-    if (!dependentElements)
-      return;
-    dependentElements.forEach((binding) => {
-      this.#updateElement(binding);
-    });
-  }
-  #updateElement(binding) {
-    const fn = Reflect.get(this.instance, binding.callback);
-    if (typeof fn === "function") {
-      try {
-        fn.call(this.instance, binding.element);
-      } catch (error) {
-        console.error(`Error in binding callback "${binding.callback}":`, error);
-      }
-    }
-  }
-  #warn(message) {
-    if (!this.devMode)
-      return;
-    console.warn(`[Sprincul] ${message}`);
-  }
-}
-
-// src/registry.ts
-var FLUSH_PENDING = Symbol("flushPending");
-var cores = new WeakMap;
-function getCore(model) {
-  return cores.get(model);
-}
-function setCore(model, core) {
-  cores.set(model, core);
-}
-function deleteCore(model) {
-  cores.delete(model);
-}
-
-// src/Sprincul.ts
-class Sprincul {
-  static #registry = new Map;
   static #devMode = false;
-  static #isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
+  static #registry = new Map;
   static #globalStores = new Map;
   static #processedElements = new WeakSet;
-  static #instancesByName = new Map;
-  static #modelNames = new WeakMap;
-  static #rootMutationObserver = null;
-  static #readyCallbacks = [];
+  static #instanceRegistry = new WeakMap;
   static store = {
     get(key) {
       const store = Sprincul.#globalStores.get(key);
@@ -520,73 +264,62 @@ class Sprincul {
       Sprincul.#globalStores.clear();
     }
   };
+  constructor(element) {
+    this.$el = element;
+    this.$state = map({});
+    this.$state.listen((_, __, changed) => {
+      if (!changed)
+        return;
+      this.#scheduleUpdate(changed);
+    });
+    this.#setupStateProxy();
+    Sprincul.#instanceRegistry.set(this, (container) => this.#setupBindings(container));
+  }
   static register(name, modelClass) {
     Sprincul.#registry.set(name, modelClass);
   }
-  static registerAll(models) {
-    for (const [name, cls] of Object.entries(models)) {
-      Sprincul.#registry.set(name, cls);
-    }
-  }
-  static onReady(callback) {
-    if (!Sprincul.#isBrowser) {
-      console.warn("[Sprincul] onReady() called in non-browser environment.");
-      return;
-    }
-    Sprincul.#readyCallbacks.push(callback);
-  }
   static init(options) {
-    if (!Sprincul.#isBrowser) {
-      console.warn("[Sprincul] init() called in non-browser environment. Skipping initialization.");
-      return;
+    if (options?.devMode) {
+      Sprincul.#devMode = true;
     }
-    Sprincul.#devMode = options?.devMode ?? false;
-    Sprincul.#startRootDetachObserver();
-    const modelElements = Array.from(document.querySelectorAll("[data-model]"));
-    const modelInfos = [];
-    modelElements.forEach((element) => {
-      try {
-        const info = Sprincul.processModelElement(element);
-        if (info) {
-          modelInfos.push(info);
-        }
-      } catch (e) {
-        console.error(`[Sprincul] Failed to process model element:`, e);
-      }
+    document.querySelectorAll("[data-model]").forEach((element) => {
+      Sprincul.processModelElement(element);
     });
-    document.querySelectorAll("[data-cloaked]:not([data-model])").forEach((element) => {
+    document.querySelectorAll("[data-cloaked]").forEach((element) => {
       element.removeAttribute("data-cloaked");
     });
-    Sprincul.#dispatchReadyEvents(modelInfos);
   }
-  static #startRootDetachObserver() {
-    if (!Sprincul.#isBrowser)
-      return;
-    if (Sprincul.#rootMutationObserver)
-      return;
-    Sprincul.#rootMutationObserver = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        for (const node of mutation.removedNodes) {
-          if (node.nodeType !== Node.ELEMENT_NODE)
-            continue;
-          const removedElement = node;
-          Sprincul.#destroyRemovedModelRoots(removedElement);
-          removedElement.querySelectorAll("[data-model]").forEach((nestedRoot) => {
-            Sprincul.#destroyRemovedModelRoots(nestedRoot);
-          });
+  #scheduleUpdate(key) {
+    this.#pendingUpdates.add(key);
+    if (!this.#updateScheduled) {
+      this.#updateScheduled = true;
+      requestAnimationFrame(() => {
+        this.#pendingUpdates.forEach((prop) => this.#updateDependentElements(prop));
+        this.#pendingUpdates.clear();
+        this.#updateScheduled = false;
+      });
+    }
+  }
+  #setupStateProxy() {
+    this.state = new Proxy({}, {
+      get: (_, prop) => {
+        if (this.#computed.has(prop)) {
+          return this.#computed.get(prop).get();
         }
+        return this.$state.get()[prop];
+      },
+      set: (_, prop, value) => {
+        this.$state.setKey(prop, value);
+        return true;
       }
     });
-    Sprincul.#rootMutationObserver.observe(document.body, {
-      childList: true,
-      subtree: true
-    });
   }
-  static #destroyRemovedModelRoots(element) {
-    const modelName = element.dataset.model;
-    if (!modelName)
-      return;
-    Sprincul.destroy(modelName, element);
+  static #runHook(instance, methodName) {
+    const hook = Reflect.get(instance, methodName);
+    if (typeof hook !== "function") {
+      return Promise.resolve(undefined);
+    }
+    return Promise.resolve().then(() => hook.call(instance));
   }
   static processModelElement(element) {
     const modelName = element.dataset.model;
@@ -598,140 +331,134 @@ class Sprincul {
       throw new Error(`The model, "${modelName}" is not registered for use.`);
     }
     if (Sprincul.#processedElements.has(element))
-      return null;
+      return;
     Sprincul.#processedElements.add(element);
     const model = new ModelClass(element);
-    const core = new SprinculCore(model, Sprincul.#devMode);
-    setCore(model, core);
-    Sprincul.#trackModelInstance(modelName, model);
-    if (typeof model[FLUSH_PENDING] === "function") {
-      model[FLUSH_PENDING]();
+    if (!(model instanceof Sprincul)) {
+      throw new Error(`The model, "${modelName}" must be an instance of Sprincul.`);
     }
-    core.setupBindings(element);
-    Sprincul.#runHook(model, "afterInit").catch((e) => console.error('Error in "afterInit" hook call:', e)).finally(() => {
-      if (element.hasAttribute("data-cloaked")) {
-        element.removeAttribute("data-cloaked");
-      }
-    });
-    const modelInfo = { name: modelName, element };
-    if (Sprincul.#devMode) {
-      modelInfo.instance = model;
-    }
-    return modelInfo;
-  }
-  static destroy(modelName, element) {
-    const instances = Sprincul.#instancesByName.get(modelName);
-    if (!instances || instances.size === 0)
-      return;
-    if (element) {
-      const target = Array.from(instances).find((instance) => instance.$el === element);
-      if (target) {
-        Sprincul.#destroyInstance(target);
-      }
-      return;
-    }
-    Array.from(instances).forEach((instance) => {
-      Sprincul.#destroyInstance(instance);
+    Sprincul.#instanceRegistry.get(model)?.(element);
+    Sprincul.#instanceRegistry.delete(model);
+    Sprincul.#runHook(model, "afterInit").catch((error) => {
+      console.error('Error in "afterInit" hook call:', error);
     });
   }
-  static #destroyInstance(model) {
-    const core = getCore(model);
-    if (core) {
-      core.destroy();
-      deleteCore(model);
-    }
-    Sprincul.#processedElements.delete(model.$el);
-    Sprincul.#untrackModelInstance(model);
-  }
-  static #trackModelInstance(modelName, model) {
-    if (!Sprincul.#instancesByName.has(modelName)) {
-      Sprincul.#instancesByName.set(modelName, new Set);
-    }
-    Sprincul.#instancesByName.get(modelName).add(model);
-    Sprincul.#modelNames.set(model, modelName);
-  }
-  static #untrackModelInstance(model) {
-    const modelName = Sprincul.#modelNames.get(model);
-    if (!modelName)
-      return;
-    const instances = Sprincul.#instancesByName.get(modelName);
-    if (!instances)
-      return;
-    instances.delete(model);
-    if (instances.size === 0) {
-      Sprincul.#instancesByName.delete(modelName);
-    }
-  }
-  static #runHook(instance, methodName) {
-    const hook = Reflect.get(instance, methodName);
-    if (typeof hook !== "function") {
-      return Promise.resolve(undefined);
-    }
-    return Promise.resolve().then(() => hook.call(instance));
-  }
-  static #dispatchReadyEvents(models) {
-    const readyEvent = new CustomEvent("sprincul:ready", {
-      bubbles: true,
-      detail: { models }
-    });
-    document.dispatchEvent(readyEvent);
-    Sprincul.#readyCallbacks.forEach((callback) => {
-      try {
-        callback(models);
-      } catch (error) {
-        console.error("Error in onReady callback:", error);
-      }
-    });
-    Sprincul.#readyCallbacks = [];
-  }
-}
-
-// src/SprinculModel.ts
-class SprinculModel {
-  $el;
-  #state;
-  state;
-  #core;
-  #pendingComputed = [];
-  constructor(element) {
-    this.$el = element;
-    this.#state = map({});
-    this.#state.listen((_, __, changed) => {
-      if (!changed)
+  #setupBindings(container = this.$el) {
+    this.#processElementBindings(container);
+    container.querySelectorAll("*").forEach((el) => {
+      const element = el;
+      const closestModelElement = element.closest("[data-model]");
+      if (element.hasAttribute("data-model") && element !== container)
         return;
-      const core = this.#core || getCore(this);
-      if (core) {
-        core.scheduleUpdate(changed);
+      if (closestModelElement !== this.$el)
+        return;
+      this.#processElementBindings(element);
+    });
+    this.#mutationObserver = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        for (const node of mutation.removedNodes) {
+          if (!(node instanceof HTMLElement))
+            continue;
+          this.#purgeElement(node);
+          node.querySelectorAll("*").forEach((child) => {
+            if (child instanceof HTMLElement)
+              this.#purgeElement(child);
+          });
+        }
       }
     });
-    this.state = SprinculCore.createStateProxy(this.#state, () => this.#core || getCore(this));
+    this.#mutationObserver?.observe(this.$el, { childList: true, subtree: true });
   }
-  addComputedProp(name, fn, dependencies = []) {
+  addComputedProp(key, fn, dependencies = []) {
     if (dependencies.length === 0) {
-      console.warn(`[Sprincul] addComputedProp("${name}") called without dependencies. Bound elements will not re-render when the value changes.`);
+      console.warn(`[Sprincul] addComputedProp("${key}") called without dependencies. Bound elements will not re-render when the value changes.`);
     }
-    const core = this.#core || getCore(this);
-    if (!core) {
-      this.#pendingComputed.push({ key: name, fn, dependencies });
-      return;
+    const computedStore2 = computed(this.$state, fn.bind(this));
+    this.#computed.set(key, computedStore2);
+    if (dependencies.length > 0) {
+      this.$state.listen((_, __, changed) => {
+        if (changed && dependencies.includes(changed)) {
+          this.#scheduleUpdate(key);
+        }
+      });
     }
-    return core.registerComputedFromModel(name, () => Reflect.apply(fn, this, []), dependencies, this.#state);
   }
-  [FLUSH_PENDING]() {
-    const core = getCore(this);
-    if (!core)
-      return;
-    this.#core = core;
-    this.#pendingComputed.forEach(({ key, fn, dependencies }) => {
-      const wrapperFn = () => Reflect.apply(fn, this, []);
-      core.registerComputedFromModel(key, wrapperFn, dependencies, this.#state);
+  #processElementBindings(element) {
+    Array.from(element.attributes).forEach((attr) => {
+      if (attr.name.startsWith("data-bind-")) {
+        const propertyName = attr.name.substring("data-bind-".length);
+        const callbackName = attr.value;
+        this.#trackBinding(propertyName, element, callbackName);
+        const bindFn = Reflect.get(this, callbackName);
+        if (typeof bindFn === "function") {
+          try {
+            bindFn.call(this, element);
+          } catch (error) {
+            console.error(`Error in binding callback "${callbackName}" for property "${propertyName}":`, error);
+          }
+        } else {
+          this.#warn(`Binding callback "${callbackName}" not found for data-bind-${propertyName}.`);
+        }
+      } else if (attr.name.startsWith("on") && attr.name.length > 2) {
+        const eventName = attr.name.substring(2);
+        const methodName = attr.value;
+        const eventFn = Reflect.get(this, methodName);
+        if (typeof eventFn === "function") {
+          element.addEventListener(eventName, (e) => {
+            try {
+              eventFn.call(this, e);
+            } catch (error) {
+              console.error(`Error in event handler "${methodName}" for event "${eventName}":`, error);
+            }
+          });
+          element.removeAttribute(attr.name);
+        } else {
+          this.#warn(`Event handler method "${methodName}" not found for ${attr.name}.`);
+        }
+      }
     });
-    this.#pendingComputed = [];
+  }
+  #trackBinding(prop, element, callback) {
+    if (!this.#bindings.has(prop)) {
+      this.#bindings.set(prop, new Set);
+    }
+    this.#bindings.get(prop).add({ element, callback });
+  }
+  #purgeElement(element) {
+    this.#bindings.forEach((bindings) => {
+      bindings.forEach((binding) => {
+        if (binding.element === element)
+          bindings.delete(binding);
+      });
+    });
+  }
+  #updateDependentElements(prop) {
+    const dependentElements = this.#bindings.get(prop);
+    if (!dependentElements)
+      return;
+    dependentElements.forEach((binding) => {
+      this.#updateElement(binding);
+    });
+  }
+  #updateElement(binding) {
+    const fn = Reflect.get(this, binding.callback);
+    if (typeof fn === "function") {
+      try {
+        fn.call(this, binding.element);
+      } catch (error) {
+        console.error(`Error in binding callback "${binding.callback}":`, error);
+      }
+    }
+  }
+  #warn(message) {
+    if (!Sprincul.#devMode)
+      return;
+    console.warn(`[Sprincul] ${message}`);
   }
 }
 export {
-  SprinculModel,
+  Sprincul as SprinculModel,
   Sprincul
 };
 
-//# debugId=80E7C46A28685EA164756E2164756E21
+//# debugId=526B5491D7D0952F64756E2164756E21

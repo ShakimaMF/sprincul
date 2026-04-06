@@ -1,21 +1,9 @@
 /// <reference lib="dom" />
-import { expect, test, describe, beforeEach, afterEach, spyOn } from "bun:test";
-import {Sprincul, SprinculModel} from '../../src/index.ts';
+import { expect, test, describe, spyOn } from "bun:test";
 import { waitForDomUpdate } from '../helpers.ts';
 
 describe('Sprincul - Data Bindings', () => {
-  let container: HTMLElement;
-
-  beforeEach(() => {
-    container = document.createElement('div');
-    document.body.appendChild(container);
-  });
-
-  afterEach(() => {
-    container.remove();
-  });
-
-  describe('data-bind-* reactive bindings', () => {
+    describe('data-bind-* reactive bindings', () => {
     test('calls callback with element when bound property changes', async () => {
       container.innerHTML = `
         <div data-model="TestModel">
@@ -25,8 +13,7 @@ describe('Sprincul - Data Bindings', () => {
       `;
 
       class TestModel extends SprinculModel {
-        constructor(element: HTMLElement) {
-          super(element);
+        beforeInit() {
           this.state.message = 'Hello';
         }
 
@@ -62,8 +49,7 @@ describe('Sprincul - Data Bindings', () => {
       `;
 
       class TestModel extends SprinculModel {
-        constructor(element: HTMLElement) {
-          super(element);
+        beforeInit() {
           this.state.title = 'Title';
           this.state.content = 'Content';
         }
@@ -109,8 +95,7 @@ describe('Sprincul - Data Bindings', () => {
       `;
 
       class TestModel extends SprinculModel {
-        constructor(element: HTMLElement) {
-          super(element);
+        beforeInit() {
           this.state.clicked = false;
         }
 
@@ -152,8 +137,7 @@ describe('Sprincul - Data Bindings', () => {
       `;
 
       class CounterModel extends SprinculModel {
-        constructor(element: HTMLElement) {
-          super(element);
+        beforeInit() {
           this.state.count = 0;
           this.addComputedProp('doubled', () => this.state.count * 2, ['count']);
           this.addComputedProp('status', () => {
@@ -246,8 +230,7 @@ describe('Sprincul - Data Bindings', () => {
       `;
 
       class TestModel extends SprinculModel {
-        constructor(element: HTMLElement) {
-          super(element);
+        beforeInit() {
           this.state.items = [
             { id: 1, name: 'Item 1' },
             { id: 2, name: 'Item 2' },
@@ -279,8 +262,7 @@ describe('Sprincul - Data Bindings', () => {
       `;
 
       class TestModel extends SprinculModel {
-        constructor(element: HTMLElement) {
-          super(element);
+        beforeInit() {
           this.state.items = [{ id: 1, name: 'Item 1' }];
         }
 
@@ -330,8 +312,7 @@ describe('Sprincul - Data Bindings', () => {
       let callCount = 0;
 
       class PurgeModel extends SprinculModel {
-        constructor(element: HTMLElement) {
-          super(element);
+        beforeInit() {
           this.state.message = 'Hello';
         }
 
@@ -348,9 +329,9 @@ describe('Sprincul - Data Bindings', () => {
       Sprincul.register('PurgeModel', PurgeModel);
       Sprincul.init();
 
-      // Flush any pending RAFs from the constructor's initial state set before removing.
+      // Flush any pending RAFs from beforeInit's initial state set before removing.
       // In happy-dom: RAF fires before MutationObserver, so we must drain it first to
-      // prevent a pending constructor RAF from calling the callback after removal.
+      // prevent a pending beforeInit RAF from calling the callback after removal.
       await waitForDomUpdate();
       const countAfterInit = callCount;
 
@@ -358,9 +339,9 @@ describe('Sprincul - Data Bindings', () => {
       // The MutationObserver's child-walk (line 157) is responsible for purging it from #bindings.
       container.querySelector('#wrapper')!.remove();
 
-      // In happy-dom: RAF fires before MO, which fires before setTimeout.
-      // After this await the MO callback has fired and the span is purged from #bindings.
-      await new Promise(resolve => setTimeout(resolve, 0));
+      // Wait for the MO callback to fire and purge the span from #bindings.
+      await waitForDomUpdate();
+      await waitForDomUpdate();
 
       // Trigger a state change and wait for the update cycle to complete
       (container.querySelector('button') as HTMLButtonElement).click();
@@ -384,8 +365,7 @@ describe('Sprincul - Data Bindings', () => {
       let safeCallCount = 0;
 
       class TestModel extends SprinculModel {
-        constructor(element: HTMLElement) {
-          super(element);
+        beforeInit() {
           this.state.count = 0;
         }
 

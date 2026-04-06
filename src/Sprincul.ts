@@ -2,7 +2,7 @@ import {atom} from 'nanostores';
 import {SprinculCore} from './SprinculCore';
 import SprinculModel from './SprinculModel';
 import type {SprinculModelConstructor, SprinculModelRegistry, SprinculModelInfo} from './types';
-import { getCore, setCore, deleteCore, FLUSH_PENDING } from './registry';
+import { getCore, setCore, deleteCore } from './registry';
 
 /**
  * @class Sprincul
@@ -159,22 +159,26 @@ export default class Sprincul {
         setCore(model, core);
         Sprincul.#trackModelInstance(modelName, model);
 
-        // Flush any computed props that were added during construction
-        if (typeof model[FLUSH_PENDING] === 'function') {
-            model[FLUSH_PENDING]();
+        // The beforeInit hook MUST be called synchronously to ensure it runs before bindings are set up
+        try {
+            const result = Sprincul.#runHook(model, 'beforeInit', true);
+            if (result instanceof Promise) {
+                result.catch(e => console.error('Error in "beforeInit" hook call:', e));
+            }
+        } catch (e) {
+            console.error('Error in "beforeInit" hook call:', e);
         }
 
-        // Setup bindings
         core.setupBindings(element);
 
-        // Run lifecycle hook then, remove cloaking
-        Sprincul.#runHook(model, 'afterInit')
+        const afterHook = Sprincul.#runHook(model, 'afterInit');
+        Promise.resolve(afterHook)
             .catch(e => console.error('Error in "afterInit" hook call:', e))
             .finally(() => {
                 if (element.hasAttribute('data-cloaked')) {
                     element.removeAttribute('data-cloaked');
                 }
-            })
+            });
 
         const modelInfo: SprinculModelInfo = { name: modelName, element };
         if (Sprincul.#devMode) {
@@ -204,8 +208,11 @@ export default class Sprincul {
     static #destroyInstance(model: SprinculModel): void {
         const core = getCore(model);
         if (core) {
-            core.destroy();
-            deleteCore(model);
+            try {
+                core.destroy();
+            } finally {
+                deleteCore(model);
+            }
         }
         Sprincul.#processedElements.delete(model.$el);
         Sprincul.#untrackModelInstance(model);
@@ -233,11 +240,17 @@ export default class Sprincul {
         }
     }
 
-    static #runHook(instance: SprinculModel, methodName: string): Promise<unknown> {
+    /**
+     * Runs a lifecycle hook on a model instance.
+     * @param instance The model instance
+     * @param methodName The hook method name to invoke
+     * @param sync Set to true for hooks that must complete before other tasks can be executed.
+     *
+     */
+    static #runHook(instance: SprinculModel, methodName: string, sync = false): unknown | Promise<unknown> | undefined {
         const hook = Reflect.get(instance, methodName);
-        if (typeof hook !== 'function') {
-            return Promise.resolve(undefined);
-        }
+        if (typeof hook !== 'function') return undefined;
+        if (sync) return hook.call(instance);
 
         return Promise.resolve().then(() => hook.call(instance));
     }
