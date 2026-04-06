@@ -1,4 +1,4 @@
-<p align="center">
+<p style="text-align: center">
   <img width="398" height="125" alt="sprincul" src="https://github.com/user-attachments/assets/4c50f36e-48b0-4a6d-b3c2-6f13a85dbffb" />
   <br />
   <b>Sprincul</b> is a lightweight, browser-side JS framework for adding reactivity to HTML.

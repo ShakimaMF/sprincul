@@ -21,7 +21,7 @@ export default class SprinculModel {
     constructor(element: HTMLElement) {
         this.$el = element;
         this.#state = map<Record<string, any>>({});
-        
+
         // Listen to state changes and notify the core
         this.#state.listen((_, __, changed) => {
             if (!changed) return;
@@ -30,12 +30,9 @@ export default class SprinculModel {
                 core.scheduleUpdate(changed as string);
             }
         });
-        
+
         // Create reactive state proxy
-        this.state = SprinculCore.createStateProxy(
-            this.#state,
-            () => this.#core || getCore(this)
-        );
+        this.state = SprinculCore.createStateProxy(this.#state, () => this.#core || getCore(this));
     }
 
     /**
@@ -92,12 +89,8 @@ export default class SprinculModel {
         this.#core = core;
 
         this.#pendingComputed.forEach(({ key, fn, dependencies }) => {
-            core.registerComputedFromModel(
-                key,
-                () => Reflect.apply(fn as Function, this, []),
-                dependencies,
-                this.#state
-            );
+            const wrapperFn = () => Reflect.apply(fn as Function, this, [])
+            core.registerComputedFromModel(key, wrapperFn, dependencies, this.#state);
         });
 
         this.#pendingComputed = [];

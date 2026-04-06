@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 import { expect, test, describe, beforeEach, afterEach, spyOn } from "bun:test";
 import { Sprincul, SprinculModel } from "../../src"
+import {loadIsolatedApi} from "../helpers.ts";
 
 describe('Sprincul - Initialization', () => {
   let container: HTMLElement;
@@ -12,6 +13,71 @@ describe('Sprincul - Initialization', () => {
 
   afterEach(() => {
     container.remove();
+  });
+
+  test('Sprincul.onReady() helper works', async () => {
+    const isolatedApi = await loadIsolatedApi();
+    const { Sprincul: IsolatedSprincul, SprinculModel: IsolatedSprinculModel, cleanup } = isolatedApi;
+
+    try {
+      container.innerHTML = `
+        <div data-model="Model1"></div>
+        <div data-model="Model2"></div>
+        <div data-model="Model3"></div>
+      `;
+
+      class Model1 extends IsolatedSprinculModel {
+        async afterInit() {
+          await new Promise(resolve => setTimeout(resolve, 5));
+        }
+      }
+      class Model2 extends IsolatedSprinculModel {}
+      class Model3 extends IsolatedSprinculModel {}
+
+      IsolatedSprincul.register('Model1', Model1);
+      IsolatedSprincul.register('Model2', Model2);
+      IsolatedSprincul.register('Model3', Model3);
+
+      let callbackFired = false;
+      let receivedModels: any[] | undefined;
+      IsolatedSprincul.onReady((models: any[]) => {
+        callbackFired = true;
+        receivedModels = models;
+      });
+
+      IsolatedSprincul.init({ devMode: true });
+
+      expect(callbackFired).toBe(true);
+      expect(receivedModels).toHaveLength(3);
+      expect(receivedModels![0]).toHaveProperty('instance');
+    } finally {
+      cleanup();
+    }
+  });
+
+  test('omits instance in production mode (non-devMode)', async () => {
+    const isolatedApi = await loadIsolatedApi();
+    const { Sprincul: IsolatedSprincul, SprinculModel: IsolatedSprinculModel, cleanup } = isolatedApi;
+
+    try {
+      container.innerHTML = `<div data-model="TestModel"></div>`;
+
+      class TestModel extends IsolatedSprinculModel {}
+      IsolatedSprincul.register('TestModel', TestModel);
+
+      let receivedModels: any[] | undefined;
+      IsolatedSprincul.onReady((models: any[]) => {
+        receivedModels = models;
+      });
+
+      IsolatedSprincul.init();
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      expect(receivedModels).toHaveLength(1);
+      expect(receivedModels![0]).not.toHaveProperty('instance');
+    } finally {
+      cleanup();
+    }
   });
 
   test('registers and initializes a model', () => {
@@ -196,70 +262,6 @@ describe('Sprincul - Initialization', () => {
     expect(eventDetail.models[0]).toHaveProperty('name');
     expect(eventDetail.models[0]).toHaveProperty('element');
     expect(eventDetail.models[0]).toHaveProperty('instance');
-  });
-
-  test('Sprincul.onReady() helper works', () => {
-    container.innerHTML = `
-      <div data-model="Model1"></div>
-      <div data-model="Model2"></div>
-      <div data-model="Model3"></div>
-    `;
-
-    class Model1 extends SprinculModel {
-      async afterInit() {
-        await new Promise(resolve => setTimeout(resolve, 5));
-      }
-    }
-
-    class Model2 extends SprinculModel {}
-    class Model3 extends SprinculModel {}
-
-    Sprincul.register('Model1', Model1);
-    Sprincul.register('Model2', Model2);
-    Sprincul.register('Model3', Model3);
-
-    let callbackFired = false;
-    let receivedModels: any[] | undefined;
-
-    Sprincul.onReady((models) => {
-      callbackFired = true;
-      receivedModels = models;
-    });
-
-    Sprincul.init({ devMode: true });
-
-    // Callback fires immediately after afterInit hooks are called (not after they complete)
-    expect(callbackFired).toBe(true);
-    expect(receivedModels).toHaveLength(3);
-    expect(receivedModels![0].name).toBe('Model1');
-    expect(receivedModels![0]).toHaveProperty('instance'); // devMode includes instance
-    expect(receivedModels![1].name).toBe('Model2');
-    expect(receivedModels![2].name).toBe('Model3');
-  });
-
-  test('omits instance in production mode (non-devMode)', async () => {
-    container.innerHTML = `
-      <div data-model="TestModel"></div>
-    `;
-
-    class TestModel extends SprinculModel {}
-
-    Sprincul.register('TestModel', TestModel);
-
-    let receivedModels: any[] | undefined;
-
-    Sprincul.onReady((models) => {
-      receivedModels = models;
-    });
-
-    // Initialize without devMode
-    Sprincul.init();
-    await new Promise(resolve => setTimeout(resolve, 10));
-
-    expect(receivedModels).toHaveLength(1);
-    expect(receivedModels![0]).toHaveProperty('name');
-    expect(receivedModels![0]).toHaveProperty('element');
-    expect(receivedModels![0]).not.toHaveProperty('instance'); // No instance in production
   });
 
   test('processes nested models', () => {

@@ -22,7 +22,7 @@ describe('Sprincul.store', () => {
 
   test('set and get value', () => {
     Sprincul.store.set('theme', 'dark');
-    expect(Sprincul.store.get('theme')).toBe('dark');
+    expect(Sprincul.store.get<string>('theme')).toBe('dark');
   });
 
   test('subscribe fires only after the first change', async () => {
@@ -50,9 +50,9 @@ describe('Sprincul.store', () => {
     Sprincul.store.set('key2', 'value2');
     Sprincul.store.set('key3', 123);
 
-    expect(Sprincul.store.get('key1')).toBe('value1');
-    expect(Sprincul.store.get('key2')).toBe('value2');
-    expect(Sprincul.store.get('key3')).toBe(123);
+    expect(Sprincul.store.get<string>('key1')).toBe('value1');
+    expect(Sprincul.store.get<string>('key2')).toBe('value2');
+    expect(Sprincul.store.get<number>('key3')).toBe(123);
 
     Sprincul.store.clear();
 

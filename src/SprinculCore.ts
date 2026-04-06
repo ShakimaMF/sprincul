@@ -1,15 +1,28 @@
 import {computed, type ReadableAtom, type MapStore} from 'nanostores';
 import SprinculModel from './SprinculModel';
+import type {DomListenerRecord} from './types';
 
 /**
  * @class SprinculCore
  * @description Framework base class. Handles all binding, computed properties, and DOM observation logic
  */
 export class SprinculCore {
-    /**
-     * Create a state proxy for a model
-     * Static factory method to create the reactive state proxy
-     */
+    #bindings = new Map<string, Set<{ element: HTMLElement, callback: string }>>();
+    #computed = new Map<string, ReadableAtom>();
+    #domListeners = new Set<DomListenerRecord>();
+    #unsubscribers = new Set<() => void>();
+    #mutationObserver: MutationObserver | undefined;
+    #pendingUpdates = new Set<string>();
+    #updateScheduled: boolean = false;
+    readonly #isBrowser: boolean;
+
+    constructor(
+        public instance: SprinculModel,
+        private devMode: boolean = false
+    ) {
+        this.#isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
+    }
+
     static createStateProxy(
         stateStore: MapStore<Record<string, any>>,
         getCoreRef: () => SprinculCore | undefined
@@ -29,24 +42,6 @@ export class SprinculCore {
         });
     }
 
-    #bindings = new Map<string, Set<{ element: HTMLElement, callback: string }>>();
-    #computed = new Map<string, ReadableAtom>();
-    #mutationObserver: MutationObserver | undefined;
-    #pendingUpdates = new Set<string>();
-    #updateScheduled: boolean = false;
-    #unsubscribers = new Set<() => void>();
-    readonly #isBrowser: boolean;
-
-    constructor(
-        public instance: SprinculModel,
-        private devMode: boolean = false
-    ) {
-        this.#isBrowser = typeof window !== 'undefined' && typeof document !== 'undefined';
-    }
-
-    /**
-     * Initialize bindings and start observing the model's element
-     */
     setupBindings(container: HTMLElement) {
         // Process container itself if it has data-bind-* attributes
         this.#processElementBindings(container);
@@ -80,31 +75,18 @@ export class SprinculCore {
         }
     }
 
-    /**
-     * Register a computed property
-     */
     registerComputed(key: string, computedStore: ReadableAtom) {
         this.#computed.set(key, computedStore);
     }
 
-    /**
-     * Get a computed property value
-     */
     getComputed(key: string): any {
         return this.#computed.get(key)?.get();
     }
 
-    /**
-     * Check if a property is computed
-     */
     hasComputed(key: string): boolean {
         return this.#computed.has(key);
     }
 
-    /**
-     * Register a computed property from the model
-     * Internal method called by SprinculModel.addComputedProp()
-     */
     registerComputedFromModel(
         key: string,
         fn: () => any,
@@ -137,9 +119,6 @@ export class SprinculCore {
         }
     }
 
-    /**
-     * Schedule an update for a specific property
-     */
     scheduleUpdate(key: string) {
         if (!this.#isBrowser) return;
         
@@ -154,14 +133,16 @@ export class SprinculCore {
         }
     }
 
-    /**
-     * Clean up resources when instance is destroyed
-     */
     destroy() {
         // Clean up computed property listeners
         this.#unsubscribers.forEach(unsubscribe => unsubscribe());
         this.#unsubscribers.clear();
-        
+
+        // Clean up DOM event listeners registered from on* attributes
+        this.#domListeners.forEach(({element, type, listener, options}) => {
+            element.removeEventListener(type, listener, options);
+        });
+        this.#domListeners.clear();
         this.#mutationObserver?.disconnect();
         this.#bindings.clear();
         this.#computed.clear();
@@ -196,18 +177,21 @@ export class SprinculCore {
             else if (attr.name.startsWith('on') && attr.name.length > 2) {
                 const eventName = attr.name.substring(2); // Remove 'on' prefix
                 const methodName = attr.value;
+                element.removeAttribute(attr.name);
 
                 // Bind the event to the model method
                 const eventFn = Reflect.get(this.instance, methodName);
                 if (typeof eventFn === 'function') {
-                    element.addEventListener(eventName, (e: Event) => {
+                    const listener: EventListener = (e: Event) => {
                         try {
                             eventFn.call(this.instance, e);
                         } catch (error) {
                             console.error(`Error in event handler "${methodName}" for event "${eventName}":`, error);
                         }
-                    });
-                    element.removeAttribute(attr.name);
+                    };
+
+                    element.addEventListener(eventName, listener);
+                    this.#domListeners.add({ element, type: eventName, listener });
                 } else {
                     this.#warn(`Event handler method "${methodName}" not found for ${attr.name}.`);
                 }
@@ -227,6 +211,12 @@ export class SprinculCore {
             bindings.forEach(binding => {
                 if (binding.element === element) bindings.delete(binding);
             });
+        });
+
+        this.#domListeners.forEach(record => {
+            if (record.element !== element) return;
+            record.element.removeEventListener(record.type, record.listener, record.options);
+            this.#domListeners.delete(record);
         });
     }
 

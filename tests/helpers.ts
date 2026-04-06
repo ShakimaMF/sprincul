@@ -1,8 +1,29 @@
-/**
- * Wait for Sprincul's batched DOM updates to complete.
- * Sprincul queues updates in a requestAnimationFrame. We queue a second rAF
- * immediately after so this promise resolves only once Sprincul's frame has run.
- */
+import { rmSync } from "node:fs";
+
 export async function waitForDomUpdate() {
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+}
+
+/**
+ * Given the single-ton like very stateful nature of Sprincul, this is needed for some tests requiring a truly fresh state
+ */
+export async function loadIsolatedApi() {
+    const tempRoot = `${process.cwd()}/.sprincul-test-${crypto.randomUUID()}`;
+    const tempSrc = `${tempRoot}/src`;
+
+    const glob = new Bun.Glob("**/*");
+    for await (const relativePath of glob.scan({ cwd: `${process.cwd()}/src`, onlyFiles: true })) {
+        await Bun.write(`${tempSrc}/${relativePath}`, Bun.file(`${process.cwd()}/src/${relativePath}`));
+    }
+
+    const moduleUrl = `file://${tempSrc}/index.ts?v=${Math.random()}`;
+    const isolated = await import(moduleUrl);
+
+    return {
+        Sprincul: isolated.Sprincul,
+        SprinculModel: isolated.SprinculModel,
+        cleanup: () => {
+            rmSync(tempRoot, { recursive: true, force: true });
+        }
+    };
 }
