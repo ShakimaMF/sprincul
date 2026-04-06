@@ -27,17 +27,78 @@ export class SprinculCore {
         stateStore: MapStore<Record<string, any>>,
         getCoreRef: () => SprinculCore | undefined
     ): Record<string, any> {
+        const getStateValue = (prop: PropertyKey): any => {
+            if (typeof prop !== 'string') return undefined;
+
+            const core = getCoreRef();
+            if (core?.hasComputed(prop)) {
+                return core.getComputed(prop);
+            }
+
+            return stateStore.get()[prop];
+        };
+
         return new Proxy({}, {
-            get: (_, prop: string) => {
-                const core = getCoreRef();
-                if (core?.hasComputed(prop)) {
-                    return core?.getComputed(prop);
-                }
-                return stateStore.get()[prop];
+            get: (_, prop: PropertyKey) => {
+                return getStateValue(prop);
             },
-            set: (_, prop: string, value: any) => {
+            set: (_, prop: PropertyKey, value: any) => {
+                if (typeof prop !== 'string') return false;
                 stateStore.setKey(prop, value);
                 return true;
+            },
+            deleteProperty: (_, prop: PropertyKey) => {
+                if (typeof prop !== 'string') return false;
+
+                const current = stateStore.get();
+                if (!(prop in current)) return true;
+
+                const { [prop]: _deleted, ...next } = current;
+                stateStore.set(next);
+
+                const core = getCoreRef();
+                core?.scheduleUpdate(prop);
+
+                return true;
+            },
+            ownKeys: () => {
+                return Reflect.ownKeys(stateStore.get());
+            },
+            has: (_, prop: PropertyKey) => {
+                if (typeof prop !== 'string') return false;
+
+                const core = getCoreRef();
+                if (core?.hasComputed(prop)) return true;
+
+                return prop in stateStore.get();
+            },
+            getOwnPropertyDescriptor: (_, prop: PropertyKey) => {
+                if (typeof prop !== 'string') return undefined;
+
+                const descriptor = {
+                    configurable: true,
+                    enumerable: true
+                }
+
+                const state = stateStore.get();
+                if (prop in state) {
+                    return {
+                        ...descriptor,
+                        writable: true,
+                        value: state[prop]
+                    };
+                }
+
+                const core = getCoreRef();
+                if (core?.hasComputed(prop)) {
+                    return {
+                        ...descriptor,
+                        writable: false,
+                        value: core.getComputed(prop)
+                    };
+                }
+
+                return undefined;
             }
         });
     }
