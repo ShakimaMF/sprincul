@@ -1,181 +1,165 @@
 /// <reference lib="dom" />
-import { expect, test, describe, beforeEach, afterEach } from "bun:test";
-import Sprincul from '../../src/Sprincul.ts';
+import { expect, test, describe } from "bun:test";
 import { waitForDomUpdate } from '../helpers.ts';
 
 describe('Sprincul - State Management', () => {
-  let container: HTMLElement;
+    test('updates UI when state changes', async () => {
+      container.innerHTML = `
+        <div data-model="TestModel">
+          <button onclick="increment">Increment</button>
+          <span data-bind-count="updateCount"></span>
+        </div>
+      `;
 
-  beforeEach(() => {
-    container = document.createElement('div');
-    document.body.appendChild(container);
-  });
+      class TestModel extends SprinculModel {
+        beforeInit() {
+          this.state.count = 0;
+        }
 
-  afterEach(() => {
-    container.remove();
-  });
+        increment() {
+          this.state.count++;
+        }
 
-  test('updates UI when state changes', async () => {
-    container.innerHTML = `
-      <div data-model="TestModel">
-        <button onclick="increment">Increment</button>
-        <span data-bind-count="updateCount"></span>
-      </div>
-    `;
-
-    class TestModel extends Sprincul {
-      constructor(element: HTMLElement) {
-        super(element);
-        this.state.count = 0;
+        updateCount(el: HTMLElement) {
+          el.textContent = String(this.state.count);
+        }
       }
 
-      increment() {
-        this.state.count++;
-      }
+      Sprincul.register('TestModel', TestModel);
+      Sprincul.init();
 
-      updateCount(el: HTMLElement) {
-        el.textContent = String(this.state.count);
-      }
-    }
+      const button = container.querySelector('button') as HTMLButtonElement;
+      const span = container.querySelector('span');
 
-    Sprincul.register('TestModel', TestModel);
-    Sprincul.init();
+      expect(span?.textContent).toBe('0');
 
-    const button = container.querySelector('button') as HTMLButtonElement;
-    const span = container.querySelector('span');
+      button.click();
+      await waitForDomUpdate();
 
-    expect(span?.textContent).toBe('0');
-
-    button.click();
-    await waitForDomUpdate();
-
-    expect(span?.textContent).toBe('1');
+      expect(span?.textContent).toBe('1');
   });
 
   test('updates multiple elements bound to same property', async () => {
-    container.innerHTML = `
-      <div data-model="TestModel">
-        <button onclick="updateMessage">Update</button>
-        <span data-bind-message="updateText"></span>
-        <div data-bind-message="updateText"></div>
-      </div>
-    `;
+      container.innerHTML = `
+        <div data-model="TestModel">
+          <button onclick="updateMessage">Update</button>
+          <span data-bind-message="updateText"></span>
+          <div data-bind-message="updateText"></div>
+        </div>
+      `;
 
-    class TestModel extends Sprincul {
-      constructor(element: HTMLElement) {
-        super(element);
-        this.state.message = 'Initial';
+      class TestModel extends SprinculModel {
+        beforeInit() {
+          this.state.message = 'Initial';
+        }
+
+        updateMessage() {
+          this.state.message = 'Updated';
+        }
+
+        updateText(el: HTMLElement) {
+          el.textContent = this.state.message;
+        }
       }
 
-      updateMessage() {
-        this.state.message = 'Updated';
-      }
+      Sprincul.register('TestModel', TestModel);
+      Sprincul.init();
 
-      updateText(el: HTMLElement) {
-        el.textContent = this.state.message;
-      }
-    }
+      const button = container.querySelector('button') as HTMLButtonElement;
+      const span = container.querySelector('span');
+      const div = container.querySelector('div[data-bind-message]');
 
-    Sprincul.register('TestModel', TestModel);
-    Sprincul.init();
+      expect(span?.textContent).toBe('Initial');
+      expect(div?.textContent).toBe('Initial');
 
-    const button = container.querySelector('button') as HTMLButtonElement;
-    const span = container.querySelector('span');
-    const div = container.querySelector('div[data-bind-message]');
+      button.click();
+      await waitForDomUpdate();
 
-    expect(span?.textContent).toBe('Initial');
-    expect(div?.textContent).toBe('Initial');
-
-    button.click();
-    await waitForDomUpdate();
-
-    expect(span?.textContent).toBe('Updated');
-    expect(div?.textContent).toBe('Updated');
+      expect(span?.textContent).toBe('Updated');
+      expect(div?.textContent).toBe('Updated');
   });
 
   test('updates computed properties when dependencies change', async () => {
-    container.innerHTML = `
-      <div data-model="TestModel">
-        <button onclick="increment">Increment</button>
-        <span data-bind-doubled="updateDoubled"></span>
-      </div>
-    `;
+      container.innerHTML = `
+        <div data-model="TestModel">
+          <button onclick="increment">Increment</button>
+          <span data-bind-doubled="updateDoubled"></span>
+        </div>
+      `;
 
-    class TestModel extends Sprincul {
-      constructor(element: HTMLElement) {
-        super(element);
-        this.state.count = 5;
-        this.addComputedProp('doubled', () => this.state.count * 2, ['count']);
+      class TestModel extends SprinculModel {
+        beforeInit() {
+          this.state.count = 5;
+          this.addComputedProp('doubled', () => this.state.count * 2, ['count']);
+        }
+
+        increment() {
+          this.state.count++;
+        }
+
+        updateDoubled(el: HTMLElement) {
+          el.textContent = String(this.state.doubled);
+        }
       }
 
-      increment() {
-        this.state.count++;
-      }
+      Sprincul.register('TestModel', TestModel);
+      Sprincul.init();
 
-      updateDoubled(el: HTMLElement) {
-        el.textContent = String(this.state.doubled);
-      }
-    }
+      const button = container.querySelector('button') as HTMLButtonElement;
+      const span = container.querySelector('span');
 
-    Sprincul.register('TestModel', TestModel);
-    Sprincul.init();
+      expect(span?.textContent).toBe('10');
 
-    const button = container.querySelector('button') as HTMLButtonElement;
-    const span = container.querySelector('span');
+      button.click();
+      await waitForDomUpdate();
 
-    expect(span?.textContent).toBe('10');
-
-    button.click();
-    await waitForDomUpdate();
-
-    expect(span?.textContent).toBe('12');
+      expect(span?.textContent).toBe('12');
   });
 
   test('batches multiple state changes into single render pass', async () => {
-    container.innerHTML = `
-      <div data-model="TestModel">
-        <button onclick="multipleChanges">Update Multiple</button>
-        <span data-bind-count="updateCount"></span>
-      </div>
-    `;
+      container.innerHTML = `
+        <div data-model="TestModel">
+          <button onclick="multipleChanges">Update Multiple</button>
+          <span data-bind-count="updateCount"></span>
+        </div>
+      `;
 
-    let callCount = 0;
+      let callCount = 0;
 
-    class TestModel extends Sprincul {
-      constructor(element: HTMLElement) {
-        super(element);
-        this.state.count = 0;
+      class TestModel extends SprinculModel {
+        beforeInit() {
+          this.state.count = 0;
+        }
+
+        multipleChanges() {
+          // Make multiple state changes synchronously
+          this.state.count = 1;
+          this.state.count = 2;
+          this.state.count = 3;
+        }
+
+        updateCount(el: HTMLElement) {
+          callCount++;
+          el.textContent = String(this.state.count);
+        }
       }
 
-      multipleChanges() {
-        // Make multiple state changes synchronously
-        this.state.count = 1;
-        this.state.count = 2;
-        this.state.count = 3;
-      }
+      Sprincul.register('TestModel', TestModel);
+      Sprincul.init();
 
-      updateCount(el: HTMLElement) {
-        callCount++;
-        el.textContent = String(this.state.count);
-      }
-    }
+      const button = container.querySelector('button') as HTMLButtonElement;
+      const span = container.querySelector('span');
 
-    Sprincul.register('TestModel', TestModel);
-    Sprincul.init();
+      // Initial render
+      expect(span?.textContent).toBe('0');
+      const initialCallCount = callCount;
 
-    const button = container.querySelector('button') as HTMLButtonElement;
-    const span = container.querySelector('span');
+      button.click();
+      await waitForDomUpdate();
 
-    // Initial render
-    expect(span?.textContent).toBe('0');
-    const initialCallCount = callCount;
-
-    button.click();
-    await waitForDomUpdate();
-
-    // Should show final value
-    expect(span?.textContent).toBe('3');
-    // Should only call callback once despite three state changes
-    expect(callCount).toBe(initialCallCount + 1);
+      // Should show final value
+      expect(span?.textContent).toBe('3');
+      // Should only call callback once despite three state changes
+      expect(callCount).toBe(initialCallCount + 1);
   });
 });

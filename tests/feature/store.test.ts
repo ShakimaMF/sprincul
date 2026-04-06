@@ -1,26 +1,13 @@
 /// <reference lib="dom" />
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import Sprincul from '../../src/Sprincul.ts';
+import { describe, test, expect } from "bun:test";
 import { waitForDomUpdate } from '../helpers.ts';
 
 describe('Sprincul.store', () => {
-  let container: HTMLElement;
-
-  beforeEach(() => {
-    container = document.createElement('div');
-    document.body.appendChild(container);
-  });
-
-  afterEach(() => {
-    container.remove();
-    Sprincul.store.clear();
-  });
-
-  test('get returns undefined for missing key', () => {
+    test('get returns undefined for missing key', async () => {
     expect(Sprincul.store.get('missing')).toBeUndefined();
   });
 
-  test('set and get value', () => {
+  test('set and get value', async () => {
     Sprincul.store.set('theme', 'dark');
     expect(Sprincul.store.get('theme')).toBe('dark');
   });
@@ -28,7 +15,7 @@ describe('Sprincul.store', () => {
   test('subscribe fires only after the first change', async () => {
     const seen: Array<string | undefined> = [];
 
-    const unsub = Sprincul.store.subscribe<string>('k', (value) => {
+    const unsub = Sprincul.store.subscribe('k', (value) => {
       seen.push(value);
     });
 
@@ -45,7 +32,7 @@ describe('Sprincul.store', () => {
     unsub();
   });
 
-  test('clear removes all store entries', () => {
+  test('clear removes all store entries', async () => {
     Sprincul.store.set('key1', 'value1');
     Sprincul.store.set('key2', 'value2');
     Sprincul.store.set('key3', 123);
