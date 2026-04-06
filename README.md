@@ -87,7 +87,7 @@ export default class Counter extends SprinculModel {
 
 ### 2. Register and initialize
 
-**Important:** All model registrations and event listeners (like `Sprincul.onReady()`) must be set up **before** calling `Sprincul.init()`. After initialization completes, registered callbacks may not be invoked.
+**Important:** All model registrations and event listeners (like `Sprincul.onReady()`) must be set up **before** calling `Sprincul.init()`. After initialization completes, newly registered callbacks will not be invoked.
 
 ```js
 // main.js
