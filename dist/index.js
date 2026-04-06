@@ -232,11 +232,27 @@ var map = (initial = {}) => {
 class SprinculCore {
   instance;
   devMode;
+  static createStateProxy(stateStore, getCoreRef) {
+    return new Proxy({}, {
+      get: (_, prop) => {
+        const core = getCoreRef();
+        if (core?.hasComputed(prop)) {
+          return core?.getComputed(prop);
+        }
+        return stateStore.get()[prop];
+      },
+      set: (_, prop, value) => {
+        stateStore.setKey(prop, value);
+        return true;
+      }
+    });
+  }
   #bindings = new Map;
   #computed = new Map;
   #mutationObserver;
   #pendingUpdates = new Set;
   #updateScheduled = false;
+  #unsubscribers = new Set;
   #isBrowser;
   constructor(instance, devMode = false) {
     this.instance = instance;
@@ -280,6 +296,22 @@ class SprinculCore {
   hasComputed(key) {
     return this.#computed.has(key);
   }
+  registerComputedFromModel(key, fn, dependencies, stateStore) {
+    const computedStore2 = computed(stateStore, fn);
+    this.registerComputed(key, computedStore2);
+    if (dependencies.length > 0) {
+      const unsubscribe = stateStore.listen((_, __, changed) => {
+        if (changed && dependencies.includes(changed)) {
+          this.scheduleUpdate(key);
+        }
+      });
+      this.#unsubscribers.add(unsubscribe);
+      return () => {
+        this.#unsubscribers.delete(unsubscribe);
+        unsubscribe();
+      };
+    }
+  }
   scheduleUpdate(key) {
     if (!this.#isBrowser)
       return;
@@ -294,6 +326,8 @@ class SprinculCore {
     }
   }
   destroy() {
+    this.#unsubscribers.forEach((unsubscribe) => unsubscribe());
+    this.#unsubscribers.clear();
     this.#mutationObserver?.disconnect();
     this.#bindings.clear();
     this.#computed.clear();
@@ -394,6 +428,7 @@ class Sprincul {
   static #globalStores = new Map;
   static #processedElements = new WeakSet;
   static #readyCallbacks = [];
+  static #initialized = false;
   static store = {
     get(key) {
       const store = Sprincul.#globalStores.get(key);
@@ -425,14 +460,18 @@ class Sprincul {
   }
   static onReady(callback) {
     if (!Sprincul.#isBrowser) {
-      console.warn("[Sprincul] onReady() called in non-browser environment.");
+      Sprincul.#warn("onReady() called in non-browser environment.");
+      return;
+    }
+    if (Sprincul.#initialized) {
+      Sprincul.#warn("onReady() called after Sprincul.init() has completed. Callback will not be invoked. Register callbacks before calling init().");
       return;
     }
     Sprincul.#readyCallbacks.push(callback);
   }
   static init(options) {
     if (!Sprincul.#isBrowser) {
-      console.warn("[Sprincul] init() called in non-browser environment. Skipping initialization.");
+      Sprincul.#warn("init() called in non-browser environment. Skipping initialization.");
       return;
     }
     Sprincul.#devMode = options?.devMode ?? false;
@@ -468,12 +507,10 @@ class Sprincul {
       model[FLUSH_PENDING]();
     }
     core.setupBindings(element);
-    Sprincul.#runHook(model, "afterInit").then(() => {
+    Sprincul.#runHook(model, "afterInit").catch((e) => console.error('Error in "afterInit" hook call:', e)).finally(() => {
       if (element.hasAttribute("data-cloaked")) {
         element.removeAttribute("data-cloaked");
       }
-    }).catch((error) => {
-      console.error('Error in "afterInit" hook call:', error);
     });
     const modelInfo = { name: modelName, element };
     if (Sprincul.#devMode) {
@@ -509,6 +546,12 @@ class Sprincul {
       }
     });
     Sprincul.#readyCallbacks = [];
+    Sprincul.#initialized = true;
+  }
+  static #warn(message) {
+    if (!Sprincul.#devMode)
+      return;
+    console.warn(`[Sprincul] ${message}`);
   }
 }
 
@@ -517,8 +560,8 @@ class SprinculModel {
   $el;
   #state;
   state;
-  #pendingComputed = [];
   #core;
+  #pendingComputed = [];
   constructor(element) {
     this.$el = element;
     this.#state = map({});
@@ -530,18 +573,18 @@ class SprinculModel {
         core.scheduleUpdate(changed);
       }
     });
-    this.#setupStateProxy();
+    this.state = SprinculCore.createStateProxy(this.#state, () => this.#core || getCore(this));
   }
-  addComputedProp(key, fn, dependencies = []) {
+  addComputedProp(name, fn, dependencies = []) {
     if (dependencies.length === 0) {
-      console.warn(`[Sprincul] addComputedProp("${key}") called without dependencies. Bound elements will not re-render when the value changes.`);
+      console.warn(`[Sprincul] addComputedProp("${name}") called without dependencies. Bound elements will not re-render when the value changes.`);
     }
     const core = this.#core || getCore(this);
     if (!core) {
-      this.#pendingComputed.push({ key, fn, dependencies });
+      this.#pendingComputed.push({ key: name, fn, dependencies });
       return;
     }
-    this.#registerComputedProp(key, fn, dependencies, core);
+    return core.registerComputedFromModel(name, () => Reflect.apply(fn, this, []), dependencies, this.#state);
   }
   [FLUSH_PENDING]() {
     const core = getCore(this);
@@ -549,35 +592,9 @@ class SprinculModel {
       return;
     this.#core = core;
     this.#pendingComputed.forEach(({ key, fn, dependencies }) => {
-      this.#registerComputedProp(key, fn, dependencies, core);
+      core.registerComputedFromModel(key, () => Reflect.apply(fn, this, []), dependencies, this.#state);
     });
     this.#pendingComputed = [];
-  }
-  #registerComputedProp(key, fn, dependencies, core) {
-    const computedStore2 = computed(this.#state, fn.bind(this));
-    core.registerComputed(key, computedStore2);
-    if (dependencies.length > 0) {
-      this.#state.listen((_, __, changed) => {
-        if (changed && dependencies.includes(changed)) {
-          core.scheduleUpdate(key);
-        }
-      });
-    }
-  }
-  #setupStateProxy() {
-    this.state = new Proxy({}, {
-      get: (_, prop) => {
-        const core = this.#core || getCore(this);
-        if (core?.hasComputed(prop)) {
-          return core?.getComputed(prop);
-        }
-        return this.#state.get()[prop];
-      },
-      set: (_, prop, value) => {
-        this.#state.setKey(prop, value);
-        return true;
-      }
-    });
   }
 }
 export {
@@ -585,4 +602,4 @@ export {
   Sprincul
 };
 
-//# debugId=15A9DC47D4ABA8FA64756E2164756E21
+//# debugId=9CFB76111E4F807064756E2164756E21

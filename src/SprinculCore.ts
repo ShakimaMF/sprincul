@@ -1,16 +1,40 @@
-import type {ReadableAtom} from 'nanostores';
+import {computed, type ReadableAtom, type MapStore} from 'nanostores';
 import SprinculModel from './SprinculModel';
 
 /**
  * @class SprinculCore
- * @description Internal framework class. Handles all binding, computed properties, and DOM observation logic
+ * @description Framework base class. Handles all binding, computed properties, and DOM observation logic
  */
 export class SprinculCore {
+    /**
+     * Create a state proxy for a model
+     * Static factory method to create the reactive state proxy
+     */
+    static createStateProxy(
+        stateStore: MapStore<Record<string, any>>,
+        getCoreRef: () => SprinculCore | undefined
+    ): Record<string, any> {
+        return new Proxy({}, {
+            get: (_, prop: string) => {
+                const core = getCoreRef();
+                if (core?.hasComputed(prop)) {
+                    return core?.getComputed(prop);
+                }
+                return stateStore.get()[prop];
+            },
+            set: (_, prop: string, value: any) => {
+                stateStore.setKey(prop, value);
+                return true;
+            }
+        });
+    }
+
     #bindings = new Map<string, Set<{ element: HTMLElement, callback: string }>>();
     #computed = new Map<string, ReadableAtom>();
     #mutationObserver: MutationObserver | undefined;
     #pendingUpdates = new Set<string>();
     #updateScheduled: boolean = false;
+    #unsubscribers = new Set<() => void>();
     readonly #isBrowser: boolean;
 
     constructor(
@@ -78,6 +102,42 @@ export class SprinculCore {
     }
 
     /**
+     * Register a computed property from the model
+     * Internal method called by SprinculModel.addComputedProp()
+     */
+    registerComputedFromModel(
+        key: string,
+        fn: () => any,
+        dependencies: string[],
+        stateStore: MapStore<Record<string, any>>
+    ): (() => void) | void {
+        // Create a computed store that recalculates when dependencies change
+        const computedStore = computed(stateStore, fn);
+        
+        // Register with core
+        this.registerComputed(key, computedStore);
+
+        // Subscribe only to the specific state keys this computed depends on
+        if (dependencies.length > 0) {
+            const unsubscribe = stateStore.listen((_, __, changed) => {
+                // Only update if one of our dependencies changed
+                if (changed && dependencies.includes(changed as string)) {
+                    this.scheduleUpdate(key);
+                }
+            });
+            
+            // Store unsubscribe function for automatic cleanup
+            this.#unsubscribers.add(unsubscribe);
+            
+            // Return wrapped unsubscribe function for manual cleanup
+            return () => {
+                this.#unsubscribers.delete(unsubscribe);
+                unsubscribe();
+            };
+        }
+    }
+
+    /**
      * Schedule an update for a specific property
      */
     scheduleUpdate(key: string) {
@@ -98,6 +158,10 @@ export class SprinculCore {
      * Clean up resources when instance is destroyed
      */
     destroy() {
+        // Clean up computed property listeners
+        this.#unsubscribers.forEach(unsubscribe => unsubscribe());
+        this.#unsubscribers.clear();
+        
         this.#mutationObserver?.disconnect();
         this.#bindings.clear();
         this.#computed.clear();

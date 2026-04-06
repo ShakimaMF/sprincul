@@ -85,7 +85,7 @@ export default class Counter extends SprinculModel {
 
 ### 2. Register and initialize
 
-Register each model before calling `Sprincul.init()`.
+**Important:** All model registrations and event listeners (like `Sprincul.onReady()`) must be set up **before** calling `Sprincul.init()`. After initialization completes, registered callbacks may not be invoked.
 
 ```js
 // main.js
@@ -138,7 +138,7 @@ Wrap each model in a container marked with `data-model="<Name>"`. Put the bindin
   - **Page-level**: `<body data-cloaked>` uncloaks immediately after **all** models' `afterInit` hooks are **called** (doesn't wait for them to complete)
   - You provide the CSS; Sprincul removes the attribute at the appropriate time.
   - **Best Practice:** For models with heavy initialization (API calls, data processing), use model-level cloaking to prevent showing incomplete UI.
-- Use `Sprincul.onReady(callback)` or listen for the `sprincul:ready` event to be notified when all models have been initialized (after all `afterInit` hooks are called). Both provide an array of model information.
+- Use `Sprincul.onReady(callback)` or listen for the `sprincul:ready` event to be notified when all models have been initialized (after all `afterInit` hooks are called). Both provide an array of model information. **Note:** These must be registered **before** calling `Sprincul.init()`.
 
 ```html
 <style>[data-cloaked]{display:none}</style>
@@ -176,14 +176,14 @@ Pass `{ devMode: true }` to `Sprincul.init()` to enable:
 - Model instance exposure in the `sprincul:ready` event and `onReady` callback
 
 ```js
-Sprincul.init({ devMode: true });
-
 Sprincul.onReady((models) => {
   // In devMode, each model includes the instance property
   models.forEach(({ name, element, instance }) => {
     // Direct access to the model instance for debugging
   });
 });
+
+Sprincul.init({ devMode: true });
 ```
 
 > **Security Note:** Model instances are excluded from the ready event in production to prevent console access to internal state. Enable `devMode` only during development.
@@ -380,9 +380,10 @@ await new Promise((r) => setTimeout(r, 10));
 
 ## FAQ
 
-- **Why isn’t my `data-bind-*` callback firing?** Make sure the attribute is inside the same `data-model` container as the model instance, the callback name matches a method on your class, and that you mutated `this.state.<prop>` rather than `this.<prop>`.
+- **Why isn't my `data-bind-*` callback firing?** Make sure the attribute is inside the same `data-model` container as the model instance, the callback name matches a method on your class, and that you mutated `this.state.<prop>` rather than `this.<prop>`.
 - **Do I need a backend or bundler?** No. You can import Sprincul directly through `<script type="module">` from a CDN, your own registry, or your bundler output.
 - **When can I seed `Sprincul.store` values?** Any time: before registering models, before `Sprincul.init()`, or after initialization.
+- **Why isn't my `onReady()` callback being called?** `Sprincul.onReady()` must be registered **before** calling `Sprincul.init()`. Callbacks registered after initialization will not be invoked.
 
 ## Examples
 

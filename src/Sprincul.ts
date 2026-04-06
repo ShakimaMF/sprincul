@@ -15,6 +15,7 @@ export default class Sprincul {
     static #globalStores = new Map<string, ReturnType<typeof atom>>();
     static #processedElements = new WeakSet<HTMLElement>();
     static #readyCallbacks: Array<(models: SprinculModelInfo[]) => void> = [];
+    static #initialized: boolean = false;
 
     static store = {
         get<T = any>(key: string): T | undefined {
@@ -60,7 +61,12 @@ export default class Sprincul {
      */
     static onReady(callback: (models: SprinculModelInfo[]) => void): void {
         if (!Sprincul.#isBrowser) {
-            console.warn('[Sprincul] onReady() called in non-browser environment.');
+            Sprincul.#warn('onReady() called in non-browser environment.');
+            return;
+        }
+
+        if (Sprincul.#initialized) {
+            Sprincul.#warn('onReady() called after Sprincul.init() has completed. Callback will not be invoked. Register callbacks before calling init().');
             return;
         }
 
@@ -72,7 +78,7 @@ export default class Sprincul {
      */
     static init(options?: { devMode?: boolean }): void {
         if (!Sprincul.#isBrowser) {
-            console.warn('[Sprincul] init() called in non-browser environment. Skipping initialization.');
+            Sprincul.#warn('init() called in non-browser environment. Skipping initialization.');
             return;
         }
 
@@ -128,16 +134,14 @@ export default class Sprincul {
         // Setup bindings
         core.setupBindings(element);
 
-        // Run lifecycle hook (don't wait for it to complete)
+        // Run lifecycle hook then, remove cloaking
         Sprincul.#runHook(model, 'afterInit')
-            .then(() => {
+            .catch(e => console.error('Error in "afterInit" hook call:', e))
+            .finally(() => {
                 if (element.hasAttribute('data-cloaked')) {
                     element.removeAttribute('data-cloaked');
                 }
             })
-            .catch((error) => {
-                console.error('Error in "afterInit" hook call:', error);
-            });
 
         const modelInfo: SprinculModelInfo = { name: modelName, element };
         if (Sprincul.#devMode) {
@@ -180,5 +184,11 @@ export default class Sprincul {
         });
 
         Sprincul.#readyCallbacks = [];
+        Sprincul.#initialized = true;
+    }
+
+    static #warn(message: string): void {
+        if (!Sprincul.#devMode) return;
+        console.warn(`[Sprincul] ${message}`);
     }
 }
