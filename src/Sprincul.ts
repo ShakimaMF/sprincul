@@ -1,8 +1,8 @@
 import {atom} from 'nanostores';
 import {SprinculCore} from './SprinculCore';
 import SprinculModel from './SprinculModel';
-import type {SprinculModelConstructor, SprinculModelRegistry, SprinculModelInfo} from './types';
-import { getCore, setCore, deleteCore } from './registry';
+import type {SprinculModelConstructor, SprinculModelInfo, SprinculModelRegistry} from './types';
+import {deleteCore, getCore, setCore} from './registry';
 
 /**
  * @class Sprincul
@@ -142,12 +142,14 @@ export default class Sprincul {
     static processModelElement(element: HTMLElement): SprinculModelInfo | null {
         const modelName = element.dataset.model;
         if (!modelName) {
-            throw new Error('Element is missing a "data-model" attribute');
+            console.warn('[Sprincul] Element is missing a "data-model" attribute. Skipping.');
+            return null;
         }
 
         const ModelClass = this.#registry.get(modelName);
         if (!ModelClass) {
-            throw new Error(`The model, "${modelName}" is not registered for use.`);
+            console.warn(`[Sprincul] The model "${modelName}" is not registered. Skipping.`);
+            return null;
         }
 
         if (Sprincul.#processedElements.has(element)) return null;
@@ -180,12 +182,69 @@ export default class Sprincul {
                 }
             });
 
-        const modelInfo: SprinculModelInfo = { name: modelName, element };
-        if (Sprincul.#devMode) {
-            modelInfo.instance = model;
+        return {name: modelName, element, instance: model};
+    }
+
+    /**
+     * Manually mount a model instance on a specific element
+     *
+     * @param element - The HTML element to bind to
+     * @param modelClassOrName - Either a registered model class or the name of a registered model
+     *
+     * @returns The created model instance
+     */
+    static mount<T extends SprinculModel = SprinculModel>(
+        element: HTMLElement,
+        modelClassOrName: SprinculModelConstructor | string
+    ): T {
+        let modelName: string;
+
+        if (typeof modelClassOrName === 'string') {
+            const resolved = Sprincul.#registry.get(modelClassOrName);
+            if (!resolved) {
+                throw new Error(`Model "${modelClassOrName}" is not registered.`);
+            }
+            modelName = modelClassOrName;
+        } else {
+            const existing = Array.from(Sprincul.#registry.entries())
+                .find(([, cls]) => cls === modelClassOrName);
+
+            if (existing) {
+                modelName = existing[0];
+            } else {
+                modelName = modelClassOrName.name || 'AnonymousModel';
+                let uniqueName = modelName;
+                let counter = 1;
+                while (Sprincul.#registry.has(uniqueName)) {
+                    uniqueName = `${modelName}_${counter++}`;
+                }
+                modelName = uniqueName;
+                Sprincul.register(modelName, modelClassOrName);
+            }
         }
 
-        return modelInfo;
+        element.dataset.model = modelName;
+
+        const info = Sprincul.processModelElement(element);
+        if (!info || !info.instance) {
+            throw new Error(`Failed to mount model on element. It may already be processed — call unmount() first.`);
+        }
+
+        return info.instance as T;
+    }
+
+    /**
+     * Unmount a model instance from a specific element
+     * @param element - The HTML element to unmount from
+     * @param modelName - Optional model name to target specific instance
+     */
+    static unmount(element: HTMLElement, modelName?: string): void {
+        const name = modelName || element.dataset.model;
+        if (!name) {
+            console.warn('[Sprincul] unmount() called on element without a model.');
+            return;
+        }
+        Sprincul.destroy(name, element);
     }
 
     static destroy(modelName: string, element?: HTMLElement): void {
@@ -256,15 +315,19 @@ export default class Sprincul {
     }
 
     static #dispatchReadyEvents(models: SprinculModelInfo[]) {
+        const publicModels = Sprincul.#devMode
+            ? models
+            : models.map(({ name, element }) => ({ name, element }));
+
         const readyEvent = new CustomEvent('sprincul:ready', {
             bubbles: true,
-            detail: { models }
+            detail: { models: publicModels }
         });
         document.dispatchEvent(readyEvent);
 
         Sprincul.#readyCallbacks.forEach(callback => {
             try {
-                callback(models);
+                callback(publicModels);
             } catch (error) {
                 console.error('Error in onReady callback:', error);
             }
