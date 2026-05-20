@@ -1,6 +1,6 @@
 {
   "name": "sprincul",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "A lightweight, browser-side JS framework for adding reactivity to HTML.",
   "homepage": "https://github.com/ShakimaMF/sprincul",
   "type": "module",
