@@ -42,7 +42,9 @@
     "main": {
       "optimize": true,
       "context": "browser",
-      "includeNodeModules": ["nanostores"]
+      "includeNodeModules": [
+        "nanostores"
+      ]
     }
   },
   "devDependencies": {

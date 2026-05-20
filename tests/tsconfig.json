@@ -11,8 +11,6 @@
     "types": ["bun"],
     "lib": ["es2022", "dom"]
   },
-  "include": [
-    "./**/*.ts"
-  ],
+  "include": ["./**/*.ts"],
   "exclude": []
 }

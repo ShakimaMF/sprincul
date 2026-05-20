@@ -11,10 +11,6 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": [
-    "src"
-  ],
-  "exclude": [
-    "tests"
-  ]
+  "include": ["src"],
+  "exclude": ["tests"]
 }
