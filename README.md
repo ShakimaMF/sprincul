@@ -1,4 +1,4 @@
-<p style="text-align: center">
+<p align="center">
   <img width="398" height="125" alt="sprincul" src="https://github.com/user-attachments/assets/4c50f36e-48b0-4a6d-b3c2-6f13a85dbffb" />
   <br />
   <b>Sprincul:</b> Lightweight, browser-side reactivity for HTML.
@@ -6,9 +6,11 @@
 </p>
 
 ## About
+
 Sprincul is a lightweight, browser-side JS framework for adding reactivity to HTML. It focuses on enhancing existing markup using HTML attributes that map directly to your JavaScript classes.
 
 ## Highlights
+
 - State and reactivity are powered by plain JavaScript classes.
 - Uses [nanostores](https://github.com/nanostores/nanostores) under the hood for efficient reactive state management.
 - Bind state to the DOM with standard `data-*` attributes.
@@ -32,10 +34,10 @@ This is not meant to compete with either project. The goal is to offer another w
 
 ```js
 // main.js
-import { Sprincul } from 'https://esm.sh/sprincul';
-import Counter from './Counter.js';
+import { Sprincul } from "https://esm.sh/sprincul";
+import Counter from "./Counter.js";
 
-Sprincul.register('Counter', Counter);
+Sprincul.register("Counter", Counter);
 Sprincul.init();
 ```
 
@@ -50,7 +52,7 @@ bun add sprincul
 ```
 
 ```js
-import { Sprincul } from 'sprincul';
+import { Sprincul } from "sprincul";
 ```
 
 ## Quick Start
@@ -61,29 +63,29 @@ Each component is a standard JavaScript class that extends `SprinculModel`. Defi
 
 ```js
 // Counter.js
-import { SprinculModel } from 'sprincul';
+import { SprinculModel } from "sprincul";
 
 export default class Counter extends SprinculModel {
-  beforeInit() {
-    this.state.count = 0;
-  }
+	beforeInit() {
+		this.state.count = 0;
+	}
 
-  increment() {
-    this.state.count++;
-  }
+	increment() {
+		this.state.count++;
+	}
 
-  decrement() {
-    this.state.count--;
-  }
+	decrement() {
+		this.state.count--;
+	}
 
-  /** @param {HTMLInputElement} el */
-  showCount(el) {
-    el.value = this.state.count;
-  }
+	/** @param {HTMLInputElement} el */
+	showCount(el) {
+		el.value = this.state.count;
+	}
 
-  resetCounter() {
-    this.state.count = 0;
-  }
+	resetCounter() {
+		this.state.count = 0;
+	}
 }
 ```
 
@@ -93,10 +95,10 @@ export default class Counter extends SprinculModel {
 
 ```js
 // main.js
-import { Sprincul } from 'sprincul';
-import Counter from './Counter.js';
+import { Sprincul } from "sprincul";
+import Counter from "./Counter.js";
 
-Sprincul.register('Counter', Counter);
+Sprincul.register("Counter", Counter);
 Sprincul.init();
 ```
 
@@ -104,15 +106,15 @@ For bulk registration, use `registerAll` with an object of model names and class
 
 ```js
 // main.js
-import { Sprincul } from 'sprincul';
-import Counter from './Counter.js';
-import UserProfile from './UserProfile.js';
-import ShoppingCart from './ShoppingCart.js';
+import { Sprincul } from "sprincul";
+import Counter from "./Counter.js";
+import UserProfile from "./UserProfile.js";
+import ShoppingCart from "./ShoppingCart.js";
 
 Sprincul.registerAll({
-  Counter,
-  UserProfile,
-  ShoppingCart
+	Counter,
+	UserProfile,
+	ShoppingCart,
 });
 Sprincul.init();
 ```
@@ -125,11 +127,11 @@ Wrap each model in a container marked with `data-model="<Name>"`. Put the bindin
 
 ```html
 <div data-model="Counter">
-  <p>Counter</p>
-  <button onclick="decrement">-</button>
-  <input type="number" data-bind-count="showCount" readonly />
-  <button onclick="increment">+</button>
-  <button type="reset" onclick="resetCounter">reset</button>
+	<p>Counter</p>
+	<button onclick="decrement">-</button>
+	<input type="number" data-bind-count="showCount" readonly />
+	<button onclick="increment">+</button>
+	<button type="reset" onclick="resetCounter">reset</button>
 </div>
 ```
 
@@ -139,53 +141,58 @@ Wrap each model in a container marked with `data-model="<Name>"`. Put the bindin
 - Implement `beforeInit()` to add computed properties and run setup code such as state **before bindings are attached**.
 - Implement `afterInit()` to run code **after bindings and event listeners are attached**. This is the safest place to hydrate state from APIs, connect to external stores, or kick off async work.
 - Add `data-cloaked` to hide elements until initialization completes:
-  - **Model-level**: `<div data-model="Profile" data-cloaked>` uncloaks after that model's `afterInit` hook **completes** (waits for async operations)
-  - **Page-level**: `<body data-cloaked>` uncloaks immediately after **all** models' `afterInit` hooks are **called** (doesn't wait for them to complete)
-  - You provide the CSS; Sprincul removes the attribute at the appropriate time.
-  - **Best Practice:** For models with heavy initialization (API calls, data processing), use model-level cloaking to prevent showing incomplete UI.
+    - **Model-level**: `<div data-model="Profile" data-cloaked>` uncloaks after that model's `afterInit` hook **completes** (waits for async operations)
+    - **Page-level**: `<body data-cloaked>` uncloaks immediately after **all** models' `afterInit` hooks are **called** (doesn't wait for them to complete)
+    - You provide the CSS; Sprincul removes the attribute at the appropriate time.
+    - **Best Practice:** For models with heavy initialization (API calls, data processing), use model-level cloaking to prevent showing incomplete UI.
 - Use `Sprincul.onReady(callback)` or listen for the `sprincul:ready` event to be notified when all models have been initialized (after all `afterInit` hooks are called). Both provide an array of model information. **Note:** These must be registered **before** calling `Sprincul.init()`.
 
 ```html
-<style>[data-cloaked]{display:none}</style>
+<style>
+	[data-cloaked] {
+		display: none;
+	}
+</style>
 <!-- Per-model cloaking -->
 <div data-model="Profile" data-cloaked>…</div>
 <!-- Page-level cloaking -->
 <body data-cloaked>
-  <div data-model="Profile">…</div>
-  <div data-model="Settings">…</div>
+	<div data-model="Profile">…</div>
+	<div data-model="Settings">…</div>
 </body>
 ```
 
 ```js
 // Using the helper method
 Sprincul.onReady((models) => {
-  console.log(`Sprincul initialized ${models.length} models`);
-  // Access each model's information
-  models.forEach(({ name, element }) => {
-    console.log(`Model "${name}" on element:`, element);
-  });
+	console.log(`Sprincul initialized ${models.length} models`);
+	// Access each model's information
+	models.forEach(({ name, element }) => {
+		console.log(`Model "${name}" on element:`, element);
+	});
 });
 
 // Or use the DOM event directly
-document.addEventListener('sprincul:ready', ({detail}) => {
-  const { models } = detail;
-  console.log(`Initialized ${models.length} models`);
-  // Access each model's information
+document.addEventListener("sprincul:ready", ({ detail }) => {
+	const { models } = detail;
+	console.log(`Initialized ${models.length} models`);
+	// Access each model's information
 });
 ```
 
 ### Development Mode
 
 Pass `{ devMode: true }` to `Sprincul.init()` to enable:
+
 - Development warnings in the console when bindings or handlers are misconfigured
 - Model instance exposure in the `sprincul:ready` event and `onReady` callback
 
 ```js
 Sprincul.onReady((models) => {
-  // In devMode, each model includes the instance property
-  models.forEach(({ name, element, instance }) => {
-    // Direct access to the model instance for debugging
-  });
+	// In devMode, each model includes the instance property
+	models.forEach(({ name, element, instance }) => {
+		// Direct access to the model instance for debugging
+	});
 });
 
 Sprincul.init({ devMode: true });
@@ -201,52 +208,52 @@ Sprincul reads bindings from attributes shaped like `data-bind-<prop>="<callback
 
 ```html
 <section data-model="Profile">
-  <p data-bind-name="showName"></p>
-  <p data-bind-email="showEmail"></p>
+	<p data-bind-name="showName"></p>
+	<p data-bind-email="showEmail"></p>
 </section>
 ```
 
 ```js
-import { SprinculModel } from 'sprincul';
+import { SprinculModel } from "sprincul";
 
 export default class Profile extends SprinculModel {
-  beforeInit() {
-    // Initialize state
-    this.state.name = '--';
-    this.state.email = '--';
-  }
+	beforeInit() {
+		// Initialize state
+		this.state.name = "--";
+		this.state.email = "--";
+	}
 
-  /** @param {HTMLElement} el */
-  showName(el) {
-    el.textContent = this.state.name;
-  }
+	/** @param {HTMLElement} el */
+	showName(el) {
+		el.textContent = this.state.name;
+	}
 
-  /** @param {HTMLElement} el */
-  showEmail(el) {
-    el.textContent = this.state.email;
-  }
+	/** @param {HTMLElement} el */
+	showEmail(el) {
+		el.textContent = this.state.email;
+	}
 
-  async fakeFetch() {
-    return new Promise((resolve) => {
-      const result = () =>
-        resolve({
-          name: 'Jane Doe',
-          email: 'jane@email.com',
-        });
-      setTimeout(result, 2000);
-    });
-  }
+	async fakeFetch() {
+		return new Promise((resolve) => {
+			const result = () =>
+				resolve({
+					name: "Jane Doe",
+					email: "jane@email.com",
+				});
+			setTimeout(result, 2000);
+		});
+	}
 
-  async updateUI() {
-    const { name, email } = await this.fakeFetch();
-    this.state.name = name;
-    this.state.email = email;
-  }
+	async updateUI() {
+		const { name, email } = await this.fakeFetch();
+		this.state.name = name;
+		this.state.email = email;
+	}
 
-  async afterInit() {
-    await this.updateUI();
-    console.log('UI Updated');
-  }
+	async afterInit() {
+		await this.updateUI();
+		console.log("UI Updated");
+	}
 }
 ```
 
@@ -255,18 +262,21 @@ export default class Profile extends SprinculModel {
 Use native `on<event>` attributes such as `onclick`, `oninput`, and `onchange`. Sprincul converts them into event listeners on your model instance, removes the inline attributes, and passes the native `Event` object to your handler.
 
 ```html
-<input oninput="handleInput" />
-<button onclick="save">Save</button>
+<input oninput="handleInput" /> <button onclick="save">Save</button>
 ```
 
 ```js
-import { SprinculModel } from 'sprincul';
+import { SprinculModel } from "sprincul";
 
 export default class Foo extends SprinculModel {
-  /** @param {InputEvent} e */
-  handleInput(e) { /* ... */ }
-  
-  save() { /* ... */ }
+	/** @param {InputEvent} e */
+	handleInput(e) {
+		/* ... */
+	}
+
+	save() {
+		/* ... */
+	}
 }
 ```
 
@@ -276,39 +286,48 @@ Register derived values with `addComputedProp(name, fn, dependencies)`.
 
 ```html
 <div data-model="Totals">
-  <label for="price">Price</label>
-  <input id="price" name="price" type="number" value="10" oninput="setPrice" />
-  <label for="qty">Quantity</label>
-  <input id="qty" name="qty" type="number" value="2" oninput="setQty" />
-  <p>Total: <span data-bind-total="showTotal"></span></p>
+	<label for="price">Price</label>
+	<input
+		id="price"
+		name="price"
+		type="number"
+		value="10"
+		oninput="setPrice"
+	/>
+	<label for="qty">Quantity</label>
+	<input id="qty" name="qty" type="number" value="2" oninput="setQty" />
+	<p>Total: <span data-bind-total="showTotal"></span></p>
 </div>
 ```
 
 ```js
-import { SprinculModel } from 'sprincul';
+import { SprinculModel } from "sprincul";
 
 export default class Totals extends SprinculModel {
-  beforeInit() {
-    // Initialize state and add computed props
-    this.state.price = 10;
-    this.state.qty = 2;
-    this.addComputedProp('total', () => this.state.price * this.state.qty, ['price', 'qty']);
-  }
+	beforeInit() {
+		// Initialize state and add computed props
+		this.state.price = 10;
+		this.state.qty = 2;
+		this.addComputedProp("total", () => this.state.price * this.state.qty, [
+			"price",
+			"qty",
+		]);
+	}
 
-  /** @param {InputEvent} e */
-  setPrice(e) {
-    this.state.price = Number(e.target.value || 0);
-  }
+	/** @param {InputEvent} e */
+	setPrice(e) {
+		this.state.price = Number(e.target.value || 0);
+	}
 
-  /** @param {InputEvent} e */
-  setQty(e) {
-    this.state.qty = Number(e.target.value || 0);
-  }
+	/** @param {InputEvent} e */
+	setQty(e) {
+		this.state.qty = Number(e.target.value || 0);
+	}
 
-  /** @param {HTMLElement} el */
-  showTotal(el) {
-    el.textContent = String(this.state.total);
-  }
+	/** @param {HTMLElement} el */
+	showTotal(el) {
+		el.textContent = String(this.state.total);
+	}
 }
 ```
 
@@ -322,12 +341,12 @@ Sprincul ships with a simple key/value store shared across models.
 
 ```js
 // Set and get
-Sprincul.store.set('theme', 'dark');
-const theme = Sprincul.store.get('theme');
+Sprincul.store.set("theme", "dark");
+const theme = Sprincul.store.get("theme");
 
 // Subscribe (fires only after subsequent changes; call get() first for initial value)
-const unsubscribe = Sprincul.store.subscribe('theme', (value) => {
-  console.log('theme:', value); // string | undefined
+const unsubscribe = Sprincul.store.subscribe("theme", (value) => {
+	console.log("theme:", value); // string | undefined
 });
 
 // Clear all
@@ -339,6 +358,37 @@ Sprincul.store.clear();
 - `Sprincul.store.subscribe(key, cb)` fires **after** the value changes and returns an unsubscribe function.
 
 > Need the current value immediately? Call `Sprincul.store.get(key)` before subscribing, or seed a default with `Sprincul.store.set(key, value)`.
+
+## Manual Mounting & Unmounting
+
+By default, `Sprincul.init()` scans the entire DOM and initializes all `data-model` elements it finds. For more explicit control over which models are activated, or when dynamically adding and removing elements, use the `mount()` and `unmount()` methods directly.
+
+### Mounting a model
+
+```js
+// Mount using a class reference (auto-registers if not already registered)
+import Counter from "./Counter.js";
+const el = document.querySelector("#dynamic-counter");
+const instance = Sprincul.mount(el, Counter);
+
+// Mount using a registered model name
+const instance = Sprincul.mount(el, "Counter");
+```
+
+### Unmounting a model
+
+```js
+// Remove the model instance and clean up bindings/listeners
+Sprincul.unmount(el);
+```
+
+#### When to use
+
+- **Partial initialization:** Skip `Sprincul.init()` and mount only the models you need, when you need them.
+- **Dynamic content:** Use `mount()` to activate models on HTML that is injected after the initial page load.
+- **Cleanup:** Use `unmount()` to remove models and release bindings/listeners when elements are removed from the DOM.
+- The `mount()` method accepts either a model class or a registered name. If a class is provided and not yet registered, it is automatically registered.
+- If an element was already processed by `Sprincul.init()` or `mount()`, call `unmount()` first before mounting again.
 
 ## Reactivity & Batching
 
@@ -352,25 +402,25 @@ Sprincul.store.clear();
 If you prefer TypeScript, extend `SprinculModel` with a typed `state`:
 
 ```ts
-import { SprinculModel } from 'sprincul';
+import { SprinculModel } from "sprincul";
 
 interface MyState {
-  count: number;
-  name: string;
+	count: number;
+	name: string;
 }
 
 class MyModel extends SprinculModel {
-  state!: MyState;
+	state!: MyState;
 
-  beforeInit() {
-    // Initialize state
-    this.state.count = 0;
-    this.state.name = 'Hello World';
-  }
+	beforeInit() {
+		// Initialize state
+		this.state.count = 0;
+		this.state.name = "Hello World";
+	}
 
-  afterInit() {
-    // Optional lifecycle hook
-  }
+	afterInit() {
+		// Optional lifecycle hook
+	}
 }
 ```
 
@@ -378,13 +428,7 @@ class MyModel extends SprinculModel {
 
 Sprincul assumes the surrounding HTML is relatively stable once `Sprincul.init()` has run. It handles cleanup when its own models are removed, but it does not try to track or rebuild itself around external DOM rewrites. If an already-initialized model root is removed, Sprincul cleans up its own framework references for that root and it's descendants.
 
-Sprincul does **not** currently auto-initialize new `data-model` elements that are added to the DOM after `Sprincul.init()` has run. However, if you need this behavior, you can use the following workaround:
-
-- Add your own DOM observer.
-- When you inject new model markup, register any fresh `onReady` callbacks needed for that cycle.
-- Call `Sprincul.init()` again to hydrate newly added model roots (already-initialized roots are skipped).
-
-This pattern works today and requires no additional framework code.
+Sprincul does **not** auto-initialize new `data-model` elements that are added to the DOM after `Sprincul.init()` has run. This keeps behavior predictable and avoids hidden DOM observers. When working with dynamic content, use `Sprincul.mount()` and `Sprincul.unmount()` to explicitly control which models are active and when they initialize.
 
 ### Why this isn’t automatic
 
