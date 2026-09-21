@@ -160,8 +160,15 @@ export default class Sprincul {
 			core.runQueuedInitialCallbacks();
 		}
 
-		// afterInit is called but not awaited, so async work doesn't hold up ready callbacks.
-		const afterHook = Sprincul.#runHook(model, "afterInit");
+		// afterInit is called synchronously, right here, so it has genuinely been invoked by the time
+		// processModelElement returns (onReady depends on this). Its completion is not awaited though:
+		// async work inside it doesn't hold up ready callbacks or, below, cloak removal.
+		let afterHook: unknown;
+		try {
+			afterHook = Sprincul.#runHook(model, "afterInit", true);
+		} catch (e) {
+			console.error('Error in "afterInit" hook call:', e);
+		}
 		Promise.resolve(afterHook)
 			.catch((e) => console.error('Error in "afterInit" hook call:', e))
 			.finally(() => {

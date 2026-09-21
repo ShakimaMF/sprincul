@@ -180,10 +180,12 @@ describe("Sprincul - Manual Mount API", () => {
 	});
 
 	test("mount(el, Model, { onReady }) fires synchronously once afterInit has been called; it does not wait for afterInit to resolve", async () => {
+		let afterInitCalled = false;
 		let afterInitResolved = false;
 
 		class AsyncWidget extends SprinculModel {
 			async afterInit() {
+				afterInitCalled = true;
 				await new Promise((resolve) => setTimeout(resolve, 10));
 				afterInitResolved = true;
 			}
@@ -203,8 +205,9 @@ describe("Sprincul - Manual Mount API", () => {
 			},
 		});
 
-		// Fires immediately, before afterInit has resolved
+		// Fires immediately, once afterInit has been called, but before it has resolved
 		expect(readyFired).toBe(true);
+		expect(afterInitCalled).toBe(true);
 		expect(afterInitResolved).toBe(false);
 		expect(receivedInfo.name).toBe("AsyncWidget");
 		expect(receivedInfo.element).toBe(el);

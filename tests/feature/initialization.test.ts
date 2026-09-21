@@ -10,10 +10,12 @@ describe("Sprincul - Initialization", () => {
 			<div data-model="Model3"></div>
 		`;
 
+		let slowAfterInitCalled = false;
 		let slowAfterInitResolved = false;
 
 		class Model1 extends SprinculModel {
 			async afterInit() {
+				slowAfterInitCalled = true;
 				await new Promise((resolve) => setTimeout(resolve, 20));
 				slowAfterInitResolved = true;
 			}
@@ -36,8 +38,10 @@ describe("Sprincul - Initialization", () => {
 			},
 		});
 
-		// Fires immediately, before Model1's slow afterInit has resolved
+		// Fires immediately, once afterInit has been called for every model, but before Model1's slow
+		// afterInit has resolved.
 		expect(callbackFired).toBe(true);
+		expect(slowAfterInitCalled).toBe(true);
 		expect(slowAfterInitResolved).toBe(false);
 		expect(receivedModels).toHaveLength(3);
 		expect(receivedModels![0]).toHaveProperty("instance");
