@@ -1,18 +1,23 @@
 /// <reference lib="dom" />
 import { expect, test, describe, spyOn } from "bun:test";
-import { waitForDomUpdate } from "../helpers";
+import { html, waitForDomUpdate } from "../helpers";
 
 describe("Sprincul - Initialization", () => {
-	test("Sprincul.onReady() helper works", async () => {
-		container.innerHTML = `
-        <div data-model="Model1"></div>
-        <div data-model="Model2"></div>
-        <div data-model="Model3"></div>
-      `;
+	test("init({ onReady }) fires synchronously once every model's afterInit has been called; it does not wait for afterInit to resolve", async () => {
+		container.innerHTML = html`
+			<div data-model="Model1"></div>
+			<div data-model="Model2"></div>
+			<div data-model="Model3"></div>
+		`;
+
+		let slowAfterInitCalled = false;
+		let slowAfterInitResolved = false;
 
 		class Model1 extends SprinculModel {
 			async afterInit() {
-				await new Promise((resolve) => setTimeout(resolve, 5));
+				slowAfterInitCalled = true;
+				await new Promise((resolve) => setTimeout(resolve, 20));
+				slowAfterInitResolved = true;
 			}
 		}
 		class Model2 extends SprinculModel {}
@@ -24,72 +29,49 @@ describe("Sprincul - Initialization", () => {
 
 		let callbackFired = false;
 		let receivedModels: any[] | undefined;
-		Sprincul.onReady((models: any[]) => {
-			callbackFired = true;
-			receivedModels = models;
+
+		Sprincul.init({
+			devMode: true,
+			onReady: (models: any[]) => {
+				callbackFired = true;
+				receivedModels = models;
+			},
 		});
 
-		Sprincul.init({ devMode: true });
-
+		// Fires immediately, once afterInit is called for every model, but before Model1's resolves
 		expect(callbackFired).toBe(true);
+		expect(slowAfterInitCalled).toBe(true);
+		expect(slowAfterInitResolved).toBe(false);
 		expect(receivedModels).toHaveLength(3);
 		expect(receivedModels![0]).toHaveProperty("instance");
+
+		await new Promise((resolve) => setTimeout(resolve, 30));
+		expect(slowAfterInitResolved).toBe(true);
 	});
 
-	test("onReady callbacks can be re-registered for subsequent init cycles", async () => {
-		container.innerHTML = `<div data-model="CycleModel"></div>`;
-
-		class CycleModel extends SprinculModel {}
-		Sprincul.register("CycleModel", CycleModel);
-
-		let firstCycleCalls = 0;
-		Sprincul.onReady(() => {
-			firstCycleCalls += 1;
-		});
-
-		Sprincul.init();
-		expect(firstCycleCalls).toBe(1);
-
-		// add a new model root and register a new callback for the next init cycle
-		const secondRoot = document.createElement("div");
-		secondRoot.setAttribute("data-model", "CycleModel");
-		container.appendChild(secondRoot);
-
-		let secondCycleCalls = 0;
-		Sprincul.onReady(() => {
-			secondCycleCalls += 1;
-		});
-
-		Sprincul.init();
-
-		expect(firstCycleCalls).toBe(1);
-		expect(secondCycleCalls).toBe(1);
-	});
-
-	test("omits instance in production mode (non-devMode)", async () => {
-		container.innerHTML = `<div data-model="TestModel"></div>`;
+	test("onReady omits instance in production mode (non-devMode)", () => {
+		container.innerHTML = html`<div data-model="TestModel"></div>`;
 
 		class TestModel extends SprinculModel {}
 		Sprincul.register("TestModel", TestModel);
 
 		let receivedModels: any[] | undefined;
-		Sprincul.onReady((models: any[]) => {
-			receivedModels = models;
+		Sprincul.init({
+			onReady: (models: any[]) => {
+				receivedModels = models;
+			},
 		});
-
-		Sprincul.init();
-		await waitForDomUpdate();
 
 		expect(receivedModels).toHaveLength(1);
 		expect(receivedModels![0]).not.toHaveProperty("instance");
 	});
 
 	test("registers and initializes a model", async () => {
-		container.innerHTML = `
-        <div data-model="TestModel">
-          <span data-bind-message="updateText"></span>
-        </div>
-      `;
+		container.innerHTML = html`
+			<div data-model="TestModel">
+				<span data-bind-message="updateText"></span>
+			</div>
+		`;
 
 		class TestModel extends SprinculModel {
 			beforeInit() {
@@ -109,17 +91,17 @@ describe("Sprincul - Initialization", () => {
 	});
 
 	test("registerAll registers multiple models at once", async () => {
-		container.innerHTML = `
-        <div data-model="UserModel">
-          <span data-bind-name="showName"></span>
-        </div>
-        <div data-model="ProductModel">
-          <span data-bind-title="showTitle"></span>
-        </div>
-        <div data-model="CartModel">
-          <span data-bind-count="showCount"></span>
-        </div>
-      `;
+		container.innerHTML = html`
+			<div data-model="UserModel">
+				<span data-bind-name="showName"></span>
+			</div>
+			<div data-model="ProductModel">
+				<span data-bind-title="showTitle"></span>
+			</div>
+			<div data-model="CartModel">
+				<span data-bind-count="showCount"></span>
+			</div>
+		`;
 
 		class UserModel extends SprinculModel {
 			beforeInit() {
@@ -151,11 +133,7 @@ describe("Sprincul - Initialization", () => {
 			}
 		}
 
-		Sprincul.registerAll({
-			UserModel,
-			ProductModel,
-			CartModel,
-		});
+		Sprincul.registerAll({ UserModel, ProductModel, CartModel });
 		Sprincul.init();
 
 		const userName = container.querySelector("[data-bind-name]");
@@ -168,11 +146,11 @@ describe("Sprincul - Initialization", () => {
 	});
 
 	test("removes data-cloaked attribute after initialization", async () => {
-		container.innerHTML = `
-        <div data-model="TestModel" data-cloaked>
-          <span>Content</span>
-        </div>
-      `;
+		container.innerHTML = html`
+			<div data-model="TestModel" data-cloaked>
+				<span>Content</span>
+			</div>
+		`;
 
 		class TestModel extends SprinculModel {}
 
@@ -189,7 +167,7 @@ describe("Sprincul - Initialization", () => {
 	test("logs an error when afterInit throws", async () => {
 		const errorSpy = spyOn(console, "error").mockImplementation(() => {});
 
-		container.innerHTML = `<div data-model="AfterInitErrorModel"></div>`;
+		container.innerHTML = html`<div data-model="AfterInitErrorModel"></div>`;
 
 		class AfterInitErrorModel extends SprinculModel {
 			afterInit() {
@@ -203,21 +181,18 @@ describe("Sprincul - Initialization", () => {
 		// Wait for the afterInit hook to complete and error to be logged
 		await waitForDomUpdate();
 
-		expect(errorSpy).toHaveBeenCalledWith(
-			'Error in "afterInit" hook call:',
-			expect.any(Error),
-		);
+		expect(errorSpy).toHaveBeenCalledWith('Error in "afterInit" hook call:', expect.any(Error));
 		errorSpy.mockRestore();
 	});
 
 	test("warns in devMode when a binding callback is not found", async () => {
 		const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
 
-		container.innerHTML = `
-        <div data-model="DevModeModel">
-          <span data-bind-count="nonExistentFn"></span>
-        </div>
-      `;
+		container.innerHTML = html`
+			<div data-model="DevModeModel">
+				<span data-bind-count="nonExistentFn"></span>
+			</div>
+		`;
 
 		class DevModeModel extends SprinculModel {}
 
@@ -231,54 +206,36 @@ describe("Sprincul - Initialization", () => {
 		warnSpy.mockRestore();
 	});
 
-	test("dispatches sprincul:ready event after all models initialized", async () => {
-		container.innerHTML = `
-        <div data-model="Model1"></div>
-        <div data-model="Model2"></div>
-      `;
+	test("warns in devMode when an on* event handler method is not found", async () => {
+		const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
 
-		class Model1 extends SprinculModel {
-			async afterInit() {
-				await new Promise((resolve) => setTimeout(resolve, 10));
-			}
-		}
+		container.innerHTML = html`
+			<div data-model="DevModeModel">
+				<button onclick="nonExistentHandler">Click</button>
+			</div>
+		`;
 
-		class Model2 extends SprinculModel {}
+		class DevModeModel extends SprinculModel {}
 
-		Sprincul.register("Model1", Model1);
-		Sprincul.register("Model2", Model2);
-
-		let eventFired = false;
-		let eventDetail: any;
-
-		document.addEventListener(
-			"sprincul:ready",
-			(e: Event) => {
-				eventFired = true;
-				eventDetail = (e as CustomEvent).detail;
-			},
-			{ once: true },
-		);
+		Sprincul.register("DevModeModel", DevModeModel);
 
 		Sprincul.init({ devMode: true });
 
-		// Event fires immediately after afterInit hooks are called (not after they complete)
-		expect(eventFired).toBe(true);
-		expect(eventDetail.models).toHaveLength(2);
-		expect(eventDetail.models[0]).toHaveProperty("name");
-		expect(eventDetail.models[0]).toHaveProperty("element");
-		expect(eventDetail.models[0]).toHaveProperty("instance");
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[Sprincul] Event handler method "nonExistentHandler" not found for onclick.',
+		);
+		warnSpy.mockRestore();
 	});
 
 	test("processes nested models", async () => {
-		container.innerHTML = `
-        <div data-model="OuterModel">
-          <span data-bind-outer="updateOuter"></span>
-          <div data-model="InnerModel">
-            <span data-bind-inner="updateInner"></span>
-          </div>
-        </div>
-      `;
+		container.innerHTML = html`
+			<div data-model="OuterModel">
+				<span data-bind-outer="updateOuter"></span>
+				<div data-model="InnerModel">
+					<span data-bind-inner="updateInner"></span>
+				</div>
+			</div>
+		`;
 
 		class OuterModel extends SprinculModel {
 			beforeInit() {
@@ -311,17 +268,109 @@ describe("Sprincul - Initialization", () => {
 		expect(innerSpan?.textContent).toBe("Inner");
 	});
 
-	test("beforeInit runs synchronously even when async - state is available to bindings immediately after init", async () => {
-		container.innerHTML = `
-        <div data-model="AsyncBeforeInit">
-          <span data-bind-message="updateMessage"></span>
-        </div>
-      `;
+	test("init({ root }) scopes the scan to that element's subtree", async () => {
+		const scopedRoot = document.createElement("div");
+		container.appendChild(scopedRoot);
+
+		scopedRoot.innerHTML = html`<div data-model="InsideModel"></div>`;
+		container.insertAdjacentHTML("beforeend", html`<div data-model="OutsideModel"></div>`);
+
+		let insideInitialized = false;
+		let outsideInitialized = false;
+
+		class InsideModel extends SprinculModel {
+			beforeInit() {
+				insideInitialized = true;
+			}
+		}
+		class OutsideModel extends SprinculModel {
+			beforeInit() {
+				outsideInitialized = true;
+			}
+		}
+
+		Sprincul.register("InsideModel", InsideModel);
+		Sprincul.register("OutsideModel", OutsideModel);
+
+		Sprincul.init({ root: scopedRoot });
+
+		expect(insideInitialized).toBe(true);
+		expect(outsideInitialized).toBe(false);
+	});
+
+	test("init({ root }) also processes root itself when root carries data-model", () => {
+		const scopedRoot = document.createElement("div");
+		scopedRoot.setAttribute("data-model", "RootModel");
+		scopedRoot.innerHTML = html`<div data-model="ChildModel"></div>`;
+		container.appendChild(scopedRoot);
+
+		let rootInitialized = false;
+		let childInitialized = false;
+
+		class RootModel extends SprinculModel {
+			beforeInit() {
+				rootInitialized = true;
+			}
+		}
+		class ChildModel extends SprinculModel {
+			beforeInit() {
+				childInitialized = true;
+			}
+		}
+
+		Sprincul.register("RootModel", RootModel);
+		Sprincul.register("ChildModel", ChildModel);
+
+		Sprincul.init({ root: scopedRoot });
+
+		expect(rootInitialized).toBe(true);
+		expect(childInitialized).toBe(true);
+	});
+
+	test("each init() call takes its own root; one call's root doesn't affect the next", async () => {
+		const firstRoot = document.createElement("div");
+		const secondRoot = document.createElement("div");
+		container.appendChild(firstRoot);
+		container.appendChild(secondRoot);
+
+		firstRoot.innerHTML = html`<div data-model="FirstModel"></div>`;
+		secondRoot.innerHTML = html`<div data-model="SecondModel"></div>`;
+
+		let firstInitialized = false;
+		let secondInitialized = false;
+
+		class FirstModel extends SprinculModel {
+			beforeInit() {
+				firstInitialized = true;
+			}
+		}
+		class SecondModel extends SprinculModel {
+			beforeInit() {
+				secondInitialized = true;
+			}
+		}
+		Sprincul.register("FirstModel", FirstModel);
+		Sprincul.register("SecondModel", SecondModel);
+
+		Sprincul.init({ root: firstRoot });
+		expect(firstInitialized).toBe(true);
+		expect(secondInitialized).toBe(false);
+
+		Sprincul.init({ root: secondRoot });
+		expect(secondInitialized).toBe(true);
+	});
+
+	test("initial callbacks wait for an async beforeInit to fully resolve before firing", async () => {
+		container.innerHTML = html`
+			<div data-model="AsyncBeforeInit">
+				<span data-bind-message="updateMessage"></span>
+			</div>
+		`;
 
 		class AsyncBeforeInit extends SprinculModel {
 			async beforeInit() {
-				this.state.message = "Hello from async beforeInit!";
 				await Promise.resolve();
+				this.state.message = "Hello from async beforeInit!"; // set post-await
 			}
 
 			updateMessage(el: HTMLElement) {
@@ -333,6 +382,69 @@ describe("Sprincul - Initialization", () => {
 		Sprincul.init();
 
 		const span = container.querySelector("span");
+
+		// Not yet: the hook hasn't resolved, so the initial callback hasn't fired.
+		expect(span?.textContent).toBe("");
+
+		await waitForDomUpdate();
+
 		expect(span?.textContent).toBe("Hello from async beforeInit!");
+	});
+
+	test("on* event listeners are not live until beforeInit has genuinely finished", () => {
+		container.innerHTML = html`
+			<div data-model="SlowInitModel">
+				<button onclick="increment">+</button>
+			</div>
+		`;
+
+		let stateWhenClicked: number | "unset" | undefined;
+
+		class SlowInitModel extends SprinculModel {
+			async beforeInit() {
+				await Promise.resolve();
+				this.state.count = 0;
+			}
+
+			increment() {
+				stateWhenClicked = this.state.count ?? "unset";
+			}
+		}
+
+		Sprincul.register("SlowInitModel", SlowInitModel);
+		Sprincul.init();
+
+		// beforeInit is suspended at its await, so the listener must not be attached yet
+		const button = container.querySelector("button") as HTMLButtonElement;
+		button.click();
+
+		expect(stateWhenClicked).toBeUndefined();
+	});
+
+	test("a beforeInit that synchronously destroys its own instance is excluded from onReady and afterInit", () => {
+		let afterInitCalled = false;
+
+		container.innerHTML = html`<div data-model="SelfDestroyModel"></div>`;
+
+		class SelfDestroyModel extends SprinculModel {
+			beforeInit() {
+				Sprincul.unmount(this.$el);
+			}
+			afterInit() {
+				afterInitCalled = true;
+			}
+		}
+		Sprincul.register("SelfDestroyModel", SelfDestroyModel);
+
+		let readyModels: any[] | undefined;
+		Sprincul.init({
+			devMode: true,
+			onReady: (models: any[]) => {
+				readyModels = models;
+			},
+		});
+
+		expect(afterInitCalled).toBe(false);
+		expect(readyModels).toHaveLength(0);
 	});
 });

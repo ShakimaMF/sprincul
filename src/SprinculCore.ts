@@ -1,30 +1,27 @@
 import { computed, type ReadableAtom, type MapStore } from "nanostores";
-import SprinculModel from "./SprinculModel";
-import type { DomListenerRecord } from "./types";
+import type SprinculModel from "./SprinculModel";
+import type { BoundDefaults, DomListenerRecord } from "./types";
 
 /**
  * @class SprinculCore
- * @description Framework base class. Handles all binding, computed properties, and DOM observation logic
+ * @description Framework base class. Handles all binding, computed properties, and event-listener wiring for a single model instance.
  */
 export class SprinculCore {
-	#bindings = new Map<
-		string,
-		Set<{ element: HTMLElement; callback: string }>
-	>();
+	#bindings = new Map<string, Set<{ element: HTMLElement; callback: string }>>();
 	#computed = new Map<string, ReadableAtom>();
 	#domListeners = new Set<DomListenerRecord>();
 	#unsubscribers = new Set<() => void>();
-	#mutationObserver: MutationObserver | undefined;
 	#pendingUpdates = new Set<string>();
 	#updateScheduled: boolean = false;
+	#pendingInitialCallbacks: Array<{ element: HTMLElement; callback: string }> = [];
+	#pendingListeners: Array<{ element: HTMLElement; eventName: string; methodName: string }> = [];
 	readonly #isBrowser: boolean;
 
 	constructor(
 		public instance: SprinculModel,
 		private devMode: boolean = false,
 	) {
-		this.#isBrowser =
-			typeof window !== "undefined" && typeof document !== "undefined";
+		this.#isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
 	}
 
 	static createStateProxy(
@@ -81,27 +78,16 @@ export class SprinculCore {
 				getOwnPropertyDescriptor: (_, prop: PropertyKey) => {
 					if (typeof prop !== "string") return undefined;
 
-					const descriptor = {
-						configurable: true,
-						enumerable: true,
-					};
+					const descriptor = { configurable: true, enumerable: true };
 
 					const state = stateStore.get();
 					if (prop in state) {
-						return {
-							...descriptor,
-							writable: true,
-							value: state[prop],
-						};
+						return { ...descriptor, writable: true, value: state[prop] };
 					}
 
 					const core = getCoreRef();
 					if (core?.hasComputed(prop)) {
-						return {
-							...descriptor,
-							writable: false,
-							value: core.getComputed(prop),
-						};
+						return { ...descriptor, writable: false, value: core.getComputed(prop) };
 					}
 
 					return undefined;
@@ -110,42 +96,55 @@ export class SprinculCore {
 		);
 	}
 
-	setupBindings(container: HTMLElement) {
-		// Process container itself if it has data-bind-* attributes
-		this.#processElementBindings(container);
+	setupBindings(container: HTMLElement): BoundDefaults {
+		const defaults: BoundDefaults = {};
 
-		// Process all descendants
+		// Defer callbacks so any seeded state in beforeInit is available to them
+		this.#processTree(container, { defaults, deferCallbacks: true });
+
+		return defaults;
+	}
+
+	processAddedElement(element: HTMLElement) {
+		this.#processTree(element, { deferCallbacks: false });
+	}
+
+	/**
+	 * Fires the initial data-bind-* callbacks and attaches the queued on* listeners from
+	 * setupBindings(). Call once beforeInit has genuinely finished, so a user interaction
+	 * can't reach a model method before its state is seeded.
+	 */
+	runQueuedInitialCallbacks() {
+		const queuedCallbacks = this.#pendingInitialCallbacks;
+		this.#pendingInitialCallbacks = [];
+		queuedCallbacks.forEach((binding) => this.#updateElement(binding));
+
+		const queuedListeners = this.#pendingListeners;
+		this.#pendingListeners = [];
+		queuedListeners.forEach(({ element, eventName, methodName }) =>
+			this.#attachListener(element, eventName, methodName),
+		);
+	}
+
+	#processTree(container: HTMLElement, options: { defaults?: BoundDefaults; deferCallbacks: boolean }) {
+		const isNestedModelRoot = container.hasAttribute("data-model") && container !== this.instance.$el;
+		const closestModelElement = container.closest("[data-model]");
+		const withinThisModel = container === this.instance.$el || closestModelElement === this.instance.$el;
+
+		if (!isNestedModelRoot && withinThisModel) {
+			this.#processElementBindings(container, options);
+		}
+
 		container.querySelectorAll("*").forEach((el) => {
 			const element = el as HTMLElement;
-			const closestModelElement = element.closest("[data-model]");
+			const closest = element.closest("[data-model]");
 
 			// Skip nested model elements - they will be processed by their own instance
-			if (element.hasAttribute("data-model") && element !== container)
-				return;
-			if (closestModelElement !== this.instance.$el) return;
+			if (element.hasAttribute("data-model") && element !== container) return;
+			if (closest !== this.instance.$el) return;
 
-			this.#processElementBindings(element);
+			this.#processElementBindings(element, options);
 		});
-
-		// Watch for removed descendants and purge them from #bindings to prevent memory leaks
-		if (this.#isBrowser) {
-			this.#mutationObserver = new MutationObserver((mutations) => {
-				for (const mutation of mutations) {
-					for (const node of mutation.removedNodes) {
-						if (!(node instanceof HTMLElement)) continue;
-						this.#purgeElement(node);
-						node.querySelectorAll("*").forEach((child) => {
-							if (child instanceof HTMLElement)
-								this.#purgeElement(child);
-						});
-					}
-				}
-			});
-			this.#mutationObserver?.observe(this.instance.$el, {
-				childList: true,
-				subtree: true,
-			});
-		}
 	}
 
 	registerComputed(key: string, computedStore: ReadableAtom) {
@@ -199,9 +198,7 @@ export class SprinculCore {
 		if (!this.#updateScheduled) {
 			this.#updateScheduled = true;
 			requestAnimationFrame(() => {
-				this.#pendingUpdates.forEach((prop) =>
-					this.#updateDependentElements(prop),
-				);
+				this.#pendingUpdates.forEach((prop) => this.#updateDependentElements(prop));
 				this.#pendingUpdates.clear();
 				this.#updateScheduled = false;
 			});
@@ -218,14 +215,17 @@ export class SprinculCore {
 			element.removeEventListener(type, listener, options);
 		});
 		this.#domListeners.clear();
-		this.#mutationObserver?.disconnect();
 		this.#bindings.clear();
 		this.#computed.clear();
 		this.#pendingUpdates.clear();
+
+		// Drop anything setupBindings() queued, in case destroy() ran while beforeInit was pending
+		this.#pendingInitialCallbacks = [];
+		this.#pendingListeners = [];
 	}
 
 	// Process all data-bind-* attributes and on* event handlers for an element
-	#processElementBindings(element: HTMLElement) {
+	#processElementBindings(element: HTMLElement, options: { defaults?: BoundDefaults; deferCallbacks: boolean }) {
 		Array.from(element.attributes).forEach((attr) => {
 			// Handle data-bind-* attributes for reactive property bindings (e.g. data-bind-<prop>="callbackFn")
 			if (attr.name.startsWith("data-bind-")) {
@@ -235,82 +235,95 @@ export class SprinculCore {
 				// Track this binding: when propertyName changes, update this element
 				this.#trackBinding(propertyName, element, callbackName);
 
-				// Call the callback initially
-				const bindFn = Reflect.get(this.instance, callbackName);
-				if (typeof bindFn === "function") {
-					try {
-						bindFn.call(this.instance, element);
-					} catch (error) {
-						console.error(
-							`Error in binding callback "${callbackName}" for property "${propertyName}":`,
-							error,
-						);
-					}
-				} else {
-					this.#warn(
-						`Binding callback "${callbackName}" not found for data-bind-${propertyName}.`,
-					);
+				// Capture server-rendered content before any callback touches it (first element wins)
+				if (options.defaults && !Object.prototype.hasOwnProperty.call(options.defaults, propertyName)) {
+					const isCheckable =
+						element instanceof HTMLInputElement && (element.type === "checkbox" || element.type === "radio");
+					const isMultiSelect = element instanceof HTMLSelectElement && element.multiple;
+
+					options.defaults[propertyName] = {
+						input: {
+							value: (element as HTMLInputElement).value ?? undefined,
+							checked: isCheckable ? element.checked : undefined,
+							selectedValues: isMultiSelect
+								? Array.from(element.selectedOptions).map((option) => option.value)
+								: undefined,
+						},
+						text: element.textContent ?? "",
+						html: element.innerHTML ?? "",
+					};
 				}
+
+				const bindFn = Reflect.get(this.instance, callbackName);
+				if (typeof bindFn !== "function") {
+					this.#warn(`Binding callback "${callbackName}" not found for data-bind-${propertyName}.`);
+					return;
+				}
+
+				if (options.deferCallbacks) {
+					this.#pendingInitialCallbacks.push({ element, callback: callbackName });
+					return;
+				}
+
+				// Call the callback initially
+				try {
+					bindFn.call(this.instance, element);
+				} catch (error) {
+					console.error(`Error in binding callback "${callbackName}" for property "${propertyName}":`, error);
+				}
+				return;
 			}
 
 			// Handle on* event attributes (onclick, onkeydown, etc.)
-			else if (attr.name.startsWith("on") && attr.name.length > 2) {
+			if (attr.name.startsWith("on") && attr.name.length > 2) {
 				const eventName = attr.name.substring(2); // Remove 'on' prefix
 				const methodName = attr.value;
 				element.removeAttribute(attr.name);
 
-				// Bind the event to the model method
-				const eventFn = Reflect.get(this.instance, methodName);
-				if (typeof eventFn === "function") {
-					const listener: EventListener = (e: Event) => {
-						try {
-							eventFn.call(this.instance, e);
-						} catch (error) {
-							console.error(
-								`Error in event handler "${methodName}" for event "${eventName}":`,
-								error,
-							);
-						}
-					};
-
-					element.addEventListener(eventName, listener);
-					this.#domListeners.add({
-						element,
-						type: eventName,
-						listener,
-					});
-				} else {
-					this.#warn(
-						`Event handler method "${methodName}" not found for ${attr.name}.`,
-					);
+				if (options.deferCallbacks) {
+					// Queue until beforeInit finishes, so it can't fire against unseeded state
+					this.#pendingListeners.push({ element, eventName, methodName });
+					return;
 				}
+
+				this.#attachListener(element, eventName, methodName);
 			}
 		});
+	}
+
+	#attachListener(element: HTMLElement, eventName: string, methodName: string) {
+		const eventFn = Reflect.get(this.instance, methodName);
+		if (typeof eventFn !== "function") {
+			this.#warn(`Event handler method "${methodName}" not found for on${eventName}.`);
+			return;
+		}
+
+		const listener: EventListener = (e: Event) => {
+			try {
+				eventFn.call(this.instance, e);
+			} catch (error) {
+				console.error(`Error in event handler "${methodName}" for event "${eventName}":`, error);
+			}
+		};
+
+		element.addEventListener(eventName, listener);
+		this.#domListeners.add({ element, type: eventName, listener });
 	}
 
 	#trackBinding(prop: string, element: HTMLElement, callback: string) {
 		if (!this.#bindings.has(prop)) {
 			this.#bindings.set(prop, new Set());
 		}
-		this.#bindings.get(prop)!.add({ element, callback });
-	}
 
-	#purgeElement(element: HTMLElement) {
-		this.#bindings.forEach((bindings) => {
-			bindings.forEach((binding) => {
-				if (binding.element === element) bindings.delete(binding);
-			});
-		});
+		const bindings = this.#bindings.get(prop)!;
 
-		this.#domListeners.forEach((record) => {
-			if (record.element !== element) return;
-			record.element.removeEventListener(
-				record.type,
-				record.listener,
-				record.options,
-			);
-			this.#domListeners.delete(record);
-		});
+		// Guard against double-binding when #processTree walks the same element twice
+		const alreadyBound = Array.from(bindings).some(
+			(binding) => binding.element === element && binding.callback === callback,
+		);
+		if (alreadyBound) return;
+
+		bindings.add({ element, callback });
 	}
 
 	#updateDependentElements(prop: string) {
@@ -328,10 +341,7 @@ export class SprinculCore {
 			try {
 				fn.call(this.instance, binding.element);
 			} catch (error) {
-				console.error(
-					`Error in binding callback "${binding.callback}":`,
-					error,
-				);
+				console.error(`Error in binding callback "${binding.callback}":`, error);
 			}
 		}
 	}

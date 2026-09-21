@@ -1,6 +1,33 @@
 # Changelog
 
-## 0.2.1 - 2026-05-20
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.3.0] - 2026-09-21
+
+### Added
+
+- Add `beforeInit(defaults)` for hydrating initial state from server-rendered markup. See [Lifecycle and Hydration](https://github.com/ShakimaMF/sprincul/wiki/Lifecycle-and-Hydration).
+- Add `beforeDestroy()` lifecycle hook for cleaning up anything a model subscribed to or started itself. See [Lifecycle and Hydration](https://github.com/ShakimaMF/sprincul/wiki/Lifecycle-and-Hydration).
+- Add `wire(element)` for binding newly added content within a live model without mounting a new one. See [Wiring Dynamic Content](https://github.com/ShakimaMF/sprincul/wiki/Wiring-Dynamic-Content).
+- Add `options` parameter to `Sprincul.mount()`, with `onReady` and `devMode` (`devMode` was previously `init()`-only). Add a `root` option to `init()`. See [Mounting and Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting).
+- Add `Sprincul.destroyAll()` to tear down every live model instance at once.
+
+### Changed
+
+- `Sprincul.onReady()` and the `sprincul:ready` DOM event have been replaced by the `onReady` option on `init()`/`mount()`.
+
+### Removed
+
+- **Breaking:** Sprincul no longer cleans anything up automatically on DOM changes: neither destroying a model whose element is removed, nor purging bindings/listeners for descendants removed from within it. See [Mounting and Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting).
+
+### Fixed
+
+- Fix a race where destroying and remounting a model on the same element within one synchronous tick could register its bindings twice, causing duplicate callback invocations
+
+## [0.2.1] - 2026-05-20
 
 ### Changed
 
@@ -16,7 +43,7 @@
 - Add `mount()` method to manually mount a model instance on a specific element
 - Add `unmount()` method to cleanly remove a model from an element
 
-## 0.1.0 - 2026-04-06
+## [0.1.0] - 2026-04-06
 
 ### Changed
 
@@ -35,17 +62,18 @@
 
 - Fix cloaking removal timing with separate model-level and page-level removal paths
 
-## 0.0.2 - 2026-04-05
+## [0.0.2] - 2026-04-05
 
 ### Fixed
 
 - Fix missing TypeScript type definitions
 
-## 0.0.1 - 2026-04-05
+## [0.0.1] - 2026-04-05
 
 _Initial release._
 
-[0.2.1]: https://github.com/ShakimaMF/sprincul/releases/tag/v0.2.1
-[0.1.0]: https://github.com/ShakimaMF/sprincul/releases/tag/v0.1.0
-[0.0.2]: https://github.com/ShakimaMF/sprincul/releases/tag/v0.0.2
+[0.3.0]: https://github.com/ShakimaMF/sprincul/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/ShakimaMF/sprincul/compare/v0.1.0...v0.2.1
+[0.1.0]: https://github.com/ShakimaMF/sprincul/compare/v0.0.2...v0.1.0
+[0.0.2]: https://github.com/ShakimaMF/sprincul/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/ShakimaMF/sprincul/releases/tag/v0.0.1

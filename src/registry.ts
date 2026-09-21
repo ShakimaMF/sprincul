@@ -5,9 +5,6 @@ import type SprinculModel from "./SprinculModel";
  * Central registry for managing the relationship between model instances and their core instances.
  */
 
-// Internal symbol for flushing pending computed props
-export const FLUSH_PENDING = Symbol("flushPending");
-
 const cores = new WeakMap<SprinculModel, SprinculCore>();
 
 export function getCore(model: SprinculModel): SprinculCore | undefined {

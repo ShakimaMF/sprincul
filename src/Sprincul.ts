@@ -2,9 +2,11 @@ import { atom } from "nanostores";
 import { SprinculCore } from "./SprinculCore";
 import SprinculModel from "./SprinculModel";
 import type {
+	SprinculInitOptions,
 	SprinculModelConstructor,
 	SprinculModelInfo,
 	SprinculModelRegistry,
+	SprinculMountOptions,
 } from "./types";
 import { deleteCore, getCore, setCore } from "./registry";
 
@@ -14,15 +16,15 @@ import { deleteCore, getCore, setCore } from "./registry";
  */
 export default class Sprincul {
 	static #registry: SprinculModelRegistry = new Map();
-	static #devMode: boolean = false;
-	static #isBrowser =
-		typeof window !== "undefined" && typeof document !== "undefined";
+	static #isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
 	static #globalStores = new Map<string, ReturnType<typeof atom>>();
 	static #processedElements = new WeakSet<HTMLElement>();
 	static #instancesByName = new Map<string, Set<SprinculModel>>();
 	static #modelNames = new WeakMap<SprinculModel, string>();
-	static #rootMutationObserver: MutationObserver | null = null;
-	static #readyCallbacks: Array<(models: SprinculModelInfo[]) => void> = [];
+	/** Instances mid-teardown: guards against a re-entrant destroy() invoking beforeDestroy twice. */
+	static #destroying = new WeakSet<SprinculModel>();
+	/** Instances with a still-pending async beforeInit. */
+	static #pendingBeforeInit = new WeakSet<SprinculModel>();
 
 	static store = {
 		get<T = any>(key: string): T | undefined {
@@ -35,17 +37,12 @@ export default class Sprincul {
 			}
 			Sprincul.#globalStores.get(key)!.set(value);
 		},
-		subscribe<T = any>(
-			key: string,
-			callback: (value: T | undefined) => void,
-		): () => void {
+		subscribe<T = any>(key: string, callback: (value: T | undefined) => void): () => void {
 			if (!Sprincul.#globalStores.has(key)) {
 				// Initialize an atom that can hold undefined until a value is set
 				Sprincul.#globalStores.set(key, atom<T | undefined>());
 			}
-			return Sprincul.#globalStores
-				.get(key)!
-				.listen(callback as (value: any) => void);
+			return Sprincul.#globalStores.get(key)!.listen(callback as (value: any) => void);
 		},
 		clear(): void {
 			Sprincul.#globalStores.clear();
@@ -69,114 +66,70 @@ export default class Sprincul {
 	}
 
 	/**
-	 * Register a callback to be called when all models are initialized
+	 * Initiate a one-time scan of every `[data-model]` element within `options.root` (default `document.body`).
+	 *
+	 * @param {SprinculInitOptions} options
+	 *
+	 * @return {void}
 	 */
-	static onReady(callback: (models: SprinculModelInfo[]) => void): void {
+	static init(options?: SprinculInitOptions): void {
 		if (!Sprincul.#isBrowser) {
-			console.warn(
-				"[Sprincul] onReady() called in non-browser environment.",
-			);
+			console.warn("[Sprincul] init() called in non-browser environment. Skipping initialization.");
 			return;
 		}
 
-		Sprincul.#readyCallbacks.push(callback);
-	}
+		const devMode = options?.devMode ?? false;
+		const root = options?.root ?? document.body;
 
-	/**
-	 * Initialize all models on the page
-	 */
-	static init(options?: { devMode?: boolean }): void {
-		if (!Sprincul.#isBrowser) {
-			console.warn(
-				"[Sprincul] init() called in non-browser environment. Skipping initialization.",
-			);
-			return;
-		}
+		const modelElements = Array.from(root.querySelectorAll("[data-model]"));
+		if (root.hasAttribute("data-model")) modelElements.unshift(root);
 
-		// Reset devMode each time init is called, then set it if specified
-		Sprincul.#devMode = options?.devMode ?? false;
-		Sprincul.#startRootDetachObserver();
-
-		const modelElements = Array.from(
-			document.querySelectorAll("[data-model]"),
-		);
 		const modelInfos: SprinculModelInfo[] = [];
 
 		modelElements.forEach((element) => {
 			try {
-				const info = Sprincul.processModelElement(
-					element as HTMLElement,
-				);
-				if (info) {
-					modelInfos.push(info);
-				}
+				const info = Sprincul.processModelElement(element as HTMLElement, devMode);
+				if (info) modelInfos.push(info);
 			} catch (e) {
 				console.error(`[Sprincul] Failed to process model element:`, e);
 			}
 		});
 
-		// Remove page-level cloaks and fire ready callbacks after all afterInit hooks are called (not necessarily completed)
-		document
-			.querySelectorAll("[data-cloaked]:not([data-model])")
-			.forEach((element) => {
-				element.removeAttribute("data-cloaked");
-			});
+		// Remove page-level cloaks once every model's hooks have been called (not necessarily completed)
+		root.querySelectorAll("[data-cloaked]:not([data-model])").forEach((element) => {
+			element.removeAttribute("data-cloaked");
+		});
 
-		Sprincul.#dispatchReadyEvents(modelInfos);
-	}
+		if (options?.onReady) {
+			const publicModels = devMode ? modelInfos : modelInfos.map(({ name, element }) => ({ name, element }));
 
-	static #startRootDetachObserver(): void {
-		if (!Sprincul.#isBrowser) return;
-		if (Sprincul.#rootMutationObserver) return;
-
-		Sprincul.#rootMutationObserver = new MutationObserver((mutations) => {
-			for (const mutation of mutations) {
-				for (const node of mutation.removedNodes) {
-					if (node.nodeType !== Node.ELEMENT_NODE) continue;
-					const removedElement = node as HTMLElement;
-
-					Sprincul.#destroyRemovedModelRoots(removedElement);
-					removedElement
-						.querySelectorAll("[data-model]")
-						.forEach((nestedRoot) => {
-							Sprincul.#destroyRemovedModelRoots(
-								nestedRoot as HTMLElement,
-							);
-						});
-				}
+			try {
+				options.onReady(publicModels);
+			} catch (error) {
+				console.error("Error in onReady callback:", error);
 			}
-		});
-
-		Sprincul.#rootMutationObserver.observe(document.body, {
-			childList: true,
-			subtree: true,
-		});
-	}
-
-	static #destroyRemovedModelRoots(element: HTMLElement): void {
-		const modelName = element.dataset.model;
-		if (!modelName) return;
-		Sprincul.destroy(modelName, element);
+		}
 	}
 
 	/**
 	 * Process a single model element
 	 * Creates both the user model instance and internal core instance
+	 *
+	 * @param {HTMLElement} element
+	 * @param {Boolean} devMode
+	 *
+	 * @returns The model info, or `null` if the element couldn't be processed
 	 */
-	static processModelElement(element: HTMLElement): SprinculModelInfo | null {
+	static processModelElement(element: HTMLElement, devMode: boolean = false): SprinculModelInfo | null {
 		const modelName = element.dataset.model;
 		if (!modelName) {
-			console.warn(
-				'[Sprincul] Element is missing a "data-model" attribute. Skipping.',
-			);
+			console.warn('[Sprincul] Element is missing a "data-model" attribute. Skipping.');
 			return null;
 		}
 
 		const ModelClass = this.#registry.get(modelName);
 		if (!ModelClass) {
-			console.warn(
-				`[Sprincul] The model "${modelName}" is not registered. Skipping.`,
-			);
+			console.warn(`[Sprincul] The model "${modelName}" is not registered. Skipping.`);
 			return null;
 		}
 
@@ -185,25 +138,53 @@ export default class Sprincul {
 
 		// Create user's model instance, then link internal core instance
 		const model = new ModelClass(element);
-		const core = new SprinculCore(model, Sprincul.#devMode);
+		const core = new SprinculCore(model, devMode);
 		setCore(model, core);
 		Sprincul.#trackModelInstance(modelName, model);
 
-		// The beforeInit hook MUST be called synchronously to ensure it runs before bindings are set up
+		const defaults = core.setupBindings(element);
+
+		// beforeInit is called synchronously; if it returns a Promise, everything below (initial
+		// callbacks, listeners, afterInit) waits for it to resolve instead of running immediately.
+		let beforeInitResult: unknown;
 		try {
-			const result = Sprincul.#runHook(model, "beforeInit", true);
-			if (result instanceof Promise) {
-				result.catch((e) =>
-					console.error('Error in "beforeInit" hook call:', e),
-				);
-			}
+			beforeInitResult = Sprincul.#runHook(model, "beforeInit", true, [defaults]);
 		} catch (e) {
 			console.error('Error in "beforeInit" hook call:', e);
 		}
 
-		core.setupBindings(element);
+		if (beforeInitResult instanceof Promise) {
+			Sprincul.#pendingBeforeInit.add(model);
+			beforeInitResult
+				.catch((e) => console.error('Error in "beforeInit" hook call:', e))
+				.finally(() => {
+					Sprincul.#pendingBeforeInit.delete(model);
+					// May have been destroyed while pending; don't resurrect a torn-down core.
+					if (Sprincul.#destroying.has(model)) return;
 
-		const afterHook = Sprincul.#runHook(model, "afterInit");
+					core.runQueuedInitialCallbacks();
+					Sprincul.#runAfterInit(model, element);
+				});
+		} else {
+			// beforeInit may have synchronously destroyed this very instance (e.g. called unmount()
+			// on itself); don't run afterInit or report it as ready if so.
+			if (Sprincul.#destroying.has(model)) return null;
+
+			core.runQueuedInitialCallbacks();
+			Sprincul.#runAfterInit(model, element);
+		}
+
+		return { name: modelName, element, instance: model };
+	}
+
+	/** Calls afterInit and removes the element's cloak once it settles. */
+	static #runAfterInit(model: SprinculModel, element: HTMLElement): void {
+		let afterHook: unknown;
+		try {
+			afterHook = Sprincul.#runHook(model, "afterInit", true);
+		} catch (e) {
+			console.error('Error in "afterInit" hook call:', e);
+		}
 		Promise.resolve(afterHook)
 			.catch((e) => console.error('Error in "afterInit" hook call:', e))
 			.finally(() => {
@@ -211,8 +192,6 @@ export default class Sprincul {
 					element.removeAttribute("data-cloaked");
 				}
 			});
-
-		return { name: modelName, element, instance: model };
 	}
 
 	/**
@@ -220,27 +199,25 @@ export default class Sprincul {
 	 *
 	 * @param element - The HTML element to bind to
 	 * @param modelClassOrName - Either a registered model class or the name of a registered model
+	 * @param options
 	 *
 	 * @returns The created model instance
 	 */
 	static mount<T extends SprinculModel = SprinculModel>(
 		element: HTMLElement,
 		modelClassOrName: SprinculModelConstructor | string,
+		options?: SprinculMountOptions,
 	): T {
 		let modelName: string;
 
 		if (typeof modelClassOrName === "string") {
 			const resolved = Sprincul.#registry.get(modelClassOrName);
 			if (!resolved) {
-				throw new Error(
-					`Model "${modelClassOrName}" is not registered.`,
-				);
+				throw new Error(`Model "${modelClassOrName}" is not registered.`);
 			}
 			modelName = modelClassOrName;
 		} else {
-			const existing = Array.from(Sprincul.#registry.entries()).find(
-				([, cls]) => cls === modelClassOrName,
-			);
+			const existing = Array.from(Sprincul.#registry.entries()).find(([, cls]) => cls === modelClassOrName);
 
 			if (existing) {
 				modelName = existing[0];
@@ -258,11 +235,20 @@ export default class Sprincul {
 
 		element.dataset.model = modelName;
 
-		const info = Sprincul.processModelElement(element);
+		const devMode = options?.devMode ?? false;
+		const info = Sprincul.processModelElement(element, devMode);
 		if (!info || !info.instance) {
-			throw new Error(
-				`Failed to mount model on element. It may already be processed — call unmount() first.`,
-			);
+			throw new Error(`Failed to mount model on element. It may already be processed. Call unmount() first.`);
+		}
+
+		if (options?.onReady) {
+			const publicInfo = devMode ? info : { name: info.name, element: info.element };
+
+			try {
+				options.onReady(publicInfo);
+			} catch (error) {
+				console.error("Error in onReady callback:", error);
+			}
 		}
 
 		return info.instance as T;
@@ -276,22 +262,25 @@ export default class Sprincul {
 	static unmount(element: HTMLElement, modelName?: string): void {
 		const name = modelName || element.dataset.model;
 		if (!name) {
-			console.warn(
-				"[Sprincul] unmount() called on element without a model.",
-			);
+			console.warn("[Sprincul] unmount() called on element without a model.");
 			return;
 		}
 		Sprincul.destroy(name, element);
 	}
 
+	/**
+	 * Destroy a model instance by name. If `element` is provided, destroy only that instance.
+	 * Otherwise, destroy all instances of the model.
+	 *
+	 * @param modelName
+	 * @param element
+	 */
 	static destroy(modelName: string, element?: HTMLElement): void {
 		const instances = Sprincul.#instancesByName.get(modelName);
 		if (!instances || instances.size === 0) return;
 
 		if (element) {
-			const target = Array.from(instances).find(
-				(instance) => instance.$el === element,
-			);
+			const target = Array.from(instances).find((instance) => instance.$el === element);
 			if (target) {
 				Sprincul.#destroyInstance(target);
 			}
@@ -303,7 +292,35 @@ export default class Sprincul {
 		});
 	}
 
+	static destroyAll(): void {
+		Array.from(Sprincul.#instancesByName.keys()).forEach((modelName) => {
+			Sprincul.destroy(modelName);
+		});
+	}
+
 	static #destroyInstance(model: SprinculModel): void {
+		if (Sprincul.#destroying.has(model)) return;
+		Sprincul.#destroying.add(model);
+
+		// beforeDestroy is called synchronously; if it returns a Promise, the core stays attached and
+		// tracked until it resolves (a remount attempt in the meantime is treated as already processed).
+		let beforeDestroyResult: unknown;
+		try {
+			beforeDestroyResult = Sprincul.#runHook(model, "beforeDestroy", true);
+		} catch (e) {
+			console.error('Error in "beforeDestroy" hook call:', e);
+		}
+
+		if (beforeDestroyResult instanceof Promise) {
+			beforeDestroyResult
+				.catch((e) => console.error('Error in "beforeDestroy" hook call:', e))
+				.finally(() => Sprincul.#finishDestroy(model));
+		} else {
+			Sprincul.#finishDestroy(model);
+		}
+	}
+
+	static #finishDestroy(model: SprinculModel): void {
 		const core = getCore(model);
 		if (core) {
 			try {
@@ -338,44 +355,16 @@ export default class Sprincul {
 		}
 	}
 
-	/**
-	 * Runs a lifecycle hook on a model instance.
-	 * @param instance The model instance
-	 * @param methodName The hook method name to invoke
-	 * @param sync Set to true for hooks that must complete before other tasks can be executed.
-	 *
-	 */
 	static #runHook(
 		instance: SprinculModel,
 		methodName: string,
-		sync = false,
+		sync: boolean = false,
+		args: unknown[] = [],
 	): unknown | Promise<unknown> | undefined {
 		const hook = Reflect.get(instance, methodName);
 		if (typeof hook !== "function") return undefined;
-		if (sync) return hook.call(instance);
+		if (sync) return hook.call(instance, ...args);
 
-		return Promise.resolve().then(() => hook.call(instance));
-	}
-
-	static #dispatchReadyEvents(models: SprinculModelInfo[]) {
-		const publicModels = Sprincul.#devMode
-			? models
-			: models.map(({ name, element }) => ({ name, element }));
-
-		const readyEvent = new CustomEvent("sprincul:ready", {
-			bubbles: true,
-			detail: { models: publicModels },
-		});
-		document.dispatchEvent(readyEvent);
-
-		Sprincul.#readyCallbacks.forEach((callback) => {
-			try {
-				callback(publicModels);
-			} catch (error) {
-				console.error("Error in onReady callback:", error);
-			}
-		});
-
-		Sprincul.#readyCallbacks = [];
+		return Promise.resolve().then(() => hook.call(instance, ...args));
 	}
 }

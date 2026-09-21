@@ -1,25 +1,23 @@
 /// <reference lib="dom" />
-import { expect, test, describe } from "bun:test";
-import { waitForDomUpdate } from "../helpers.ts";
+import { expect, test, describe, spyOn } from "bun:test";
+import { html, waitForDomUpdate } from "../helpers.ts";
 
 describe("Sprincul - Manual Mount API", () => {
 	test("mount() wires up a reactive model with state, bindings, and computed properties", async () => {
 		const el = document.createElement("div");
-		el.innerHTML = `
-            <button onclick="increment">+</button>
-            <span data-bind-count="showCount"></span>
-            <span data-bind-label="showLabel"></span>
-            <span data-bind-doubled="showDoubled"></span>
-        `;
+		el.innerHTML = html`
+			<button onclick="increment">+</button>
+			<span data-bind-count="showCount"></span>
+			<span data-bind-label="showLabel"></span>
+			<span data-bind-doubled="showDoubled"></span>
+		`;
 		container.appendChild(el);
 
 		class Counter extends SprinculModel {
 			beforeInit() {
 				this.state.count = 0;
 				this.state.label = "Counter";
-				this.addComputedProp("doubled", () => this.state.count * 2, [
-					"count",
-				]);
+				this.addComputedProp("doubled", () => this.state.count * 2, ["count"]);
 			}
 
 			increment() {
@@ -72,7 +70,7 @@ describe("Sprincul - Manual Mount API", () => {
 		Sprincul.register("Greeting", Greeting);
 
 		const el = document.createElement("div");
-		el.innerHTML = `<p data-bind-message="showMessage"></p>`;
+		el.innerHTML = html`<p data-bind-message="showMessage"></p>`;
 		container.appendChild(el);
 
 		const instance = Sprincul.mount(el, "Greeting");
@@ -129,7 +127,7 @@ describe("Sprincul - Manual Mount API", () => {
 		}
 
 		const el = document.createElement("div");
-		el.innerHTML = `<span data-bind-value="bindValue"></span>`;
+		el.innerHTML = html`<span data-bind-value="bindValue"></span>`;
 		container.appendChild(el);
 
 		Sprincul.mount(el, HookModel);
@@ -137,33 +135,6 @@ describe("Sprincul - Manual Mount API", () => {
 
 		const span = el.querySelector("span");
 		expect(span?.textContent).toBe("after");
-	});
-
-	test("unmount() cleans up a mounted model", () => {
-		class CleanupModel extends SprinculModel {
-			beforeInit() {
-				this.state.count = 0;
-			}
-
-			bindCount(el: HTMLElement) {
-				el.textContent = String(this.state.count);
-			}
-		}
-
-		const el = document.createElement("div");
-		el.innerHTML = `<span data-bind-count="bindCount"></span>`;
-		container.appendChild(el);
-
-		Sprincul.mount(el, CleanupModel);
-
-		const span = el.querySelector("span");
-		expect(span?.textContent).toBe("0");
-
-		Sprincul.unmount(el);
-
-		// After unmount, bindings and listeners are cleaned up internally
-		// The data-model attribute remains but the element is no longer reactive
-		expect(el.dataset.model).toBe("CleanupModel");
 	});
 
 	test("mount() does not require Sprincul.init() to be called first", async () => {
@@ -178,7 +149,7 @@ describe("Sprincul - Manual Mount API", () => {
 		}
 
 		const el = document.createElement("div");
-		el.innerHTML = `<p data-bind-text="bindText"></p>`;
+		el.innerHTML = html`<p data-bind-text="bindText"></p>`;
 		container.appendChild(el);
 
 		Sprincul.mount(el, StandaloneModel);
@@ -190,8 +161,88 @@ describe("Sprincul - Manual Mount API", () => {
 	test("mount() throws for unregistered model name", () => {
 		const el = document.createElement("div");
 
-		expect(() => Sprincul.mount(el, "NonExistentModel")).toThrow(
-			'Model "NonExistentModel" is not registered.',
-		);
+		expect(() => Sprincul.mount(el, "NonExistentModel")).toThrow('Model "NonExistentModel" is not registered.');
+	});
+
+	test("mount(el, Model, { devMode: true }) enables dev-only warnings for that instance", () => {
+		const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+
+		class DevModeMountModel extends SprinculModel {}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<span data-bind-count="missingFn"></span>`;
+		container.appendChild(el);
+
+		Sprincul.mount(el, DevModeMountModel, { devMode: true });
+
+		expect(warnSpy).toHaveBeenCalledWith('[Sprincul] Binding callback "missingFn" not found for data-bind-count.');
+		warnSpy.mockRestore();
+	});
+
+	test("mount(el, Model, { onReady }) fires synchronously once afterInit has been called; it does not wait for afterInit to resolve", async () => {
+		let afterInitCalled = false;
+		let afterInitResolved = false;
+
+		class AsyncWidget extends SprinculModel {
+			async afterInit() {
+				afterInitCalled = true;
+				await new Promise((resolve) => setTimeout(resolve, 10));
+				afterInitResolved = true;
+			}
+		}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+
+		let readyFired = false;
+		let receivedInfo: any;
+
+		Sprincul.mount(el, AsyncWidget, {
+			devMode: true,
+			onReady: (info: any) => {
+				readyFired = true;
+				receivedInfo = info;
+			},
+		});
+
+		// Fires immediately, once afterInit has been called, but before it has resolved
+		expect(readyFired).toBe(true);
+		expect(afterInitCalled).toBe(true);
+		expect(afterInitResolved).toBe(false);
+		expect(receivedInfo.name).toBe("AsyncWidget");
+		expect(receivedInfo.element).toBe(el);
+		expect(receivedInfo).toHaveProperty("instance");
+
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(afterInitResolved).toBe(true);
+	});
+
+	test("mount()'s onReady omits instance in production mode (non-devMode)", () => {
+		class PlainWidget extends SprinculModel {}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+
+		let receivedInfo: any;
+		Sprincul.mount(el, PlainWidget, {
+			onReady: (info: any) => {
+				receivedInfo = info;
+			},
+		});
+
+		expect(receivedInfo).not.toHaveProperty("instance");
+	});
+
+	test("mount() throws if beforeInit synchronously destroys its own instance", () => {
+		class SelfDestroyModel extends SprinculModel {
+			beforeInit() {
+				Sprincul.unmount(this.$el);
+			}
+		}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+
+		expect(() => Sprincul.mount(el, SelfDestroyModel)).toThrow();
 	});
 });

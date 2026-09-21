@@ -3,11 +3,7 @@
 import { rmSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-type IsolatedApi = {
-	Sprincul: any;
-	SprinculModel: any;
-	cleanup: () => void;
-};
+type IsolatedApi = { Sprincul: any; SprinculModel: any; cleanup: () => void };
 
 declare global {
 	var Sprincul: any;
@@ -17,10 +13,12 @@ declare global {
 
 let currentIsolatedApi: IsolatedApi | null = null;
 
+export function html(strings: TemplateStringsArray, ...values: unknown[]) {
+	return String.raw({ raw: strings.raw }, ...values);
+}
+
 export async function waitForDomUpdate() {
-	await new Promise<void>((resolve) =>
-		requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-	);
+	await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 }
 
 /**
@@ -32,20 +30,11 @@ export async function loadIsolatedApi() {
 
 	try {
 		const glob = new Bun.Glob("**/*");
-		for await (const relativePath of glob.scan({
-			cwd: `${process.cwd()}/src`,
-			onlyFiles: true,
-		})) {
-			await Bun.write(
-				`${tempSrc}/${relativePath}`,
-				Bun.file(`${process.cwd()}/src/${relativePath}`),
-			);
+		for await (const relativePath of glob.scan({ cwd: `${process.cwd()}/src`, onlyFiles: true })) {
+			await Bun.write(`${tempSrc}/${relativePath}`, Bun.file(`${process.cwd()}/src/${relativePath}`));
 		}
 
-		const moduleUrl = new URL(
-			`./index.ts?v=${Math.random()}`,
-			pathToFileURL(`${tempSrc}/`),
-		).href;
+		const moduleUrl = new URL(`./index.ts?v=${Math.random()}`, pathToFileURL(`${tempSrc}/`)).href;
 		const isolated = await import(moduleUrl);
 
 		return {
@@ -67,9 +56,7 @@ export function setCurrentIsolatedApi(api: IsolatedApi | null) {
 
 export function getCurrentIsolatedApi(): IsolatedApi {
 	if (!currentIsolatedApi) {
-		throw new Error(
-			"Global isolated API is not initialized for this test.",
-		);
+		throw new Error("Global isolated API is not initialized for this test.");
 	}
 
 	return currentIsolatedApi;
