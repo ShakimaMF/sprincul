@@ -140,18 +140,25 @@ export default class Sprincul {
 
 		const defaults = core.setupBindings(element);
 
-		// The beforeInit hook MUST be called synchronously to ensure it runs before bindings are set up
+		// beforeInit is called synchronously so it starts running before initial callbacks fire below.
+		// If it's synchronous (the common case), it has already finished by the time we get here, and
+		// runQueuedInitialCallbacks() runs immediately with its state changes in place. If it returns a
+		// Promise instead, we genuinely wait for it: initial callbacks are deferred into its .then() so
+		// they still only ever see state as it was after beforeInit finished, not mid-flight.
+		let beforeInitResult: unknown;
 		try {
-			const result = Sprincul.#runHook(model, "beforeInit", true, [defaults]);
-			if (result instanceof Promise) {
-				result.catch((e) => console.error('Error in "beforeInit" hook call:', e));
-			}
+			beforeInitResult = Sprincul.#runHook(model, "beforeInit", true, [defaults]);
 		} catch (e) {
 			console.error('Error in "beforeInit" hook call:', e);
 		}
 
-		// Fire the initial data-bind-* callback invocations now that beforeInit has run
-		core.runQueuedInitialCallbacks();
+		if (beforeInitResult instanceof Promise) {
+			beforeInitResult
+				.catch((e) => console.error('Error in "beforeInit" hook call:', e))
+				.finally(() => core.runQueuedInitialCallbacks());
+		} else {
+			core.runQueuedInitialCallbacks();
+		}
 
 		// afterInit is called but not awaited, so async work doesn't hold up ready callbacks.
 		const afterHook = Sprincul.#runHook(model, "afterInit");
@@ -271,12 +278,30 @@ export default class Sprincul {
 	}
 
 	static #destroyInstance(model: SprinculModel): void {
+		// beforeDestroy is called synchronously so it starts running before the core tears down below.
+		// If it's synchronous (the common case), it has already finished by the time we get here, and
+		// teardown proceeds immediately, same element/tracking state as before. If it returns a Promise
+		// instead, we genuinely wait for it: the core stays attached and this instance stays tracked
+		// until it resolves, so a remount attempt on the same element in the meantime is treated as
+		// already processed (matching the mid-synchronous-teardown case) rather than creating a second
+		// live instance on top of the first one's still-attached bindings.
+		let beforeDestroyResult: unknown;
 		try {
-			Sprincul.#runHook(model, "beforeDestroy", true);
+			beforeDestroyResult = Sprincul.#runHook(model, "beforeDestroy", true);
 		} catch (e) {
 			console.error('Error in "beforeDestroy" hook call:', e);
 		}
 
+		if (beforeDestroyResult instanceof Promise) {
+			beforeDestroyResult
+				.catch((e) => console.error('Error in "beforeDestroy" hook call:', e))
+				.finally(() => Sprincul.#finishDestroy(model));
+		} else {
+			Sprincul.#finishDestroy(model);
+		}
+	}
+
+	static #finishDestroy(model: SprinculModel): void {
 		const core = getCore(model);
 		if (core) {
 			try {

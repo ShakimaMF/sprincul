@@ -429,4 +429,73 @@ describe("Sprincul - Teardown", () => {
 		await waitForDomUpdate();
 		expect(span.textContent).toBe("1");
 	});
+
+	test("teardown waits for an async beforeDestroy to fully resolve before tearing down the core", async () => {
+		let cleanedUp = false;
+
+		class AsyncDestroyModel extends SprinculModel {
+			beforeInit() {
+				this.state.count = 0;
+			}
+			bindCount(el: HTMLElement) {
+				el.textContent = String(this.state.count);
+			}
+			async beforeDestroy() {
+				await Promise.resolve();
+				// Set after the await: this only proves anything if teardown genuinely waits
+				// for the whole hook to resolve, not just the synchronous part of the call.
+				cleanedUp = true;
+			}
+		}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<span data-bind-count="bindCount"></span>`;
+		container.appendChild(el);
+
+		const instance = Sprincul.mount(el, AsyncDestroyModel);
+		const span = el.querySelector("span") as HTMLElement;
+
+		Sprincul.unmount(el);
+
+		// Not yet: the hook hasn't resolved, so the core hasn't torn down and the model is still tracked.
+		expect(cleanedUp).toBe(false);
+
+		await waitForDomUpdate();
+
+		expect(cleanedUp).toBe(true);
+
+		// Teardown genuinely ran once the hook resolved: further state changes don't reach the span
+		instance.state.count = 99;
+		await waitForDomUpdate();
+		expect(span.textContent).toBe("0");
+	});
+
+	test("remounting on an element mid-async-beforeDestroy is a no-op until teardown finishes", async () => {
+		let resolveDestroy: () => void;
+		const destroySignal = new Promise<void>((resolve) => {
+			resolveDestroy = resolve;
+		});
+
+		class SlowDestroyModel extends SprinculModel {
+			async beforeDestroy() {
+				await destroySignal;
+			}
+		}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+
+		const first = Sprincul.mount(el, SlowDestroyModel);
+		Sprincul.unmount(el);
+
+		// The element is still mid-teardown: mounting on it again is treated as already processed.
+		expect(() => Sprincul.mount(el, SlowDestroyModel)).toThrow();
+
+		resolveDestroy!();
+		await waitForDomUpdate();
+
+		// Now that the first instance's teardown has actually finished, the element is free again.
+		const second = Sprincul.mount(el, SlowDestroyModel);
+		expect(second).not.toBe(first);
+	});
 });

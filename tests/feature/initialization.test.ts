@@ -357,7 +357,7 @@ describe("Sprincul - Initialization", () => {
 		expect(secondInitialized).toBe(true);
 	});
 
-	test("beforeInit runs synchronously even when async - state is available to bindings immediately after init", async () => {
+	test("initial callbacks wait for an async beforeInit to fully resolve before firing", async () => {
 		container.innerHTML = html`
 			<div data-model="AsyncBeforeInit">
 				<span data-bind-message="updateMessage"></span>
@@ -366,8 +366,10 @@ describe("Sprincul - Initialization", () => {
 
 		class AsyncBeforeInit extends SprinculModel {
 			async beforeInit() {
-				this.state.message = "Hello from async beforeInit!";
 				await Promise.resolve();
+				// Set after the await: this only reaches the binding if init genuinely waits
+				// for the whole hook to resolve, not just the synchronous part of the call.
+				this.state.message = "Hello from async beforeInit!";
 			}
 
 			updateMessage(el: HTMLElement) {
@@ -379,6 +381,12 @@ describe("Sprincul - Initialization", () => {
 		Sprincul.init();
 
 		const span = container.querySelector("span");
+
+		// Not yet: the hook hasn't resolved, so the initial callback hasn't fired.
+		expect(span?.textContent).toBe("");
+
+		await waitForDomUpdate();
+
 		expect(span?.textContent).toBe("Hello from async beforeInit!");
 	});
 });
