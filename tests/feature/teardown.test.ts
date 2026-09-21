@@ -498,4 +498,115 @@ describe("Sprincul - Teardown", () => {
 		const second = Sprincul.mount(el, SlowDestroyModel);
 		expect(second).not.toBe(first);
 	});
+
+	test("unmounting while beforeInit is still pending prevents its queued callbacks/listeners from ever firing", async () => {
+		let resolveInit: () => void;
+		const initSignal = new Promise<void>((resolve) => {
+			resolveInit = resolve;
+		});
+
+		let bindCallCount = 0;
+		let clickCallCount = 0;
+
+		class SlowInitModel extends SprinculModel {
+			async beforeInit() {
+				await initSignal;
+				this.state.count = 0;
+			}
+			bindCount() {
+				bindCallCount++;
+			}
+			increment() {
+				clickCallCount++;
+			}
+		}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<span data-bind-count="bindCount"></span><button onclick="increment">+</button>`;
+		container.appendChild(el);
+
+		Sprincul.mount(el, SlowInitModel);
+
+		// Destroy the instance while beforeInit is still suspended at its await.
+		Sprincul.unmount(el);
+
+		resolveInit!();
+		await waitForDomUpdate();
+
+		// beforeInit's deferred continuation ran (it isn't cancelled), but the destroyed instance's
+		// queued callback/listener must not have fired or attached: no live core to run them against.
+		expect(bindCallCount).toBe(0);
+
+		const button = el.querySelector("button") as HTMLButtonElement;
+		button.click();
+		expect(clickCallCount).toBe(0);
+	});
+
+	test("afterInit does not run until an async beforeInit has genuinely resolved", async () => {
+		let resolveInit: () => void;
+		const initSignal = new Promise<void>((resolve) => {
+			resolveInit = resolve;
+		});
+
+		let afterInitCalled = false;
+		let stateWhenAfterInitCalled: number | undefined;
+
+		class SlowInitModel extends SprinculModel {
+			async beforeInit() {
+				await initSignal;
+				this.state.count = 42;
+			}
+			afterInit() {
+				afterInitCalled = true;
+				stateWhenAfterInitCalled = this.state.count;
+			}
+		}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+
+		Sprincul.mount(el, SlowInitModel);
+
+		// beforeInit hasn't resolved yet: afterInit must not have run.
+		expect(afterInitCalled).toBe(false);
+
+		resolveInit!();
+		await waitForDomUpdate();
+
+		expect(afterInitCalled).toBe(true);
+		expect(stateWhenAfterInitCalled).toBe(42);
+	});
+
+	test("a second destroy() call while beforeDestroy is still pending does not invoke it twice", async () => {
+		let resolveDestroy: () => void;
+		const destroySignal = new Promise<void>((resolve) => {
+			resolveDestroy = resolve;
+		});
+
+		let beforeDestroyCallCount = 0;
+
+		class SlowDestroyModel extends SprinculModel {
+			async beforeDestroy() {
+				beforeDestroyCallCount++;
+				await destroySignal;
+			}
+		}
+
+		Sprincul.register("SlowDestroyModel", SlowDestroyModel);
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+
+		Sprincul.mount(el, SlowDestroyModel);
+
+		// Call destroy on this model twice in the same tick, before beforeDestroy resolves either time.
+		Sprincul.destroy("SlowDestroyModel");
+		Sprincul.destroy("SlowDestroyModel");
+		Sprincul.destroyAll();
+
+		resolveDestroy!();
+		await waitForDomUpdate();
+
+		expect(beforeDestroyCallCount).toBe(1);
+	});
 });

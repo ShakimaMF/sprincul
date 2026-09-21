@@ -218,6 +218,12 @@ export class SprinculCore {
 		this.#bindings.clear();
 		this.#computed.clear();
 		this.#pendingUpdates.clear();
+
+		// If this instance is destroyed while its beforeInit is still pending, drop anything
+		// setupBindings() queued: its deferred continuation shouldn't attach listeners or fire
+		// callbacks against a core that's already torn down.
+		this.#pendingInitialCallbacks = [];
+		this.#pendingListeners = [];
 	}
 
 	// Process all data-bind-* attributes and on* event handlers for an element

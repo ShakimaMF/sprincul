@@ -21,6 +21,14 @@ export default class Sprincul {
 	static #processedElements = new WeakSet<HTMLElement>();
 	static #instancesByName = new Map<string, Set<SprinculModel>>();
 	static #modelNames = new WeakMap<SprinculModel, string>();
+	// Set the moment #destroyInstance is entered (before beforeDestroy even runs), so a second
+	// destroy()/destroyAll()/unmount() call on the same instance while teardown is still pending
+	// (an async beforeDestroy hasn't resolved yet) is a no-op instead of invoking beforeDestroy twice.
+	static #destroying = new WeakSet<SprinculModel>();
+	// Set while an async beforeInit is still pending, cleared once it resolves. Lets a destroy that
+	// happens mid-beforeInit skip firing the queued initial callbacks/listeners once it does resolve,
+	// and gates afterInit from running until beforeInit has genuinely finished.
+	static #pendingBeforeInit = new WeakSet<SprinculModel>();
 
 	static store = {
 		get<T = any>(key: string): T | undefined {
@@ -140,12 +148,12 @@ export default class Sprincul {
 
 		const defaults = core.setupBindings(element);
 
-		// beforeInit is called synchronously so it starts running before initial callbacks fire and
-		// event listeners attach below. If it's synchronous (the common case), it has already finished
-		// by the time we get here, and runQueuedInitialCallbacks() runs immediately with its state
-		// changes in place. If it returns a Promise instead, we genuinely wait for it: callbacks and
-		// listener attachment are deferred into its .then() so neither can see or run against state
-		// mid-flight, and no listener can reach the model before beforeInit has truly finished.
+		// beforeInit is called synchronously so it starts running before initial callbacks fire,
+		// event listeners attach, and afterInit runs below. If it's synchronous (the common case), it
+		// has already finished by the time we get here, and everything below proceeds immediately with
+		// its state changes in place. If it returns a Promise instead, we genuinely wait for it: none
+		// of that runs until it resolves, so nothing can see or run against state mid-flight, and no
+		// listener can reach the model before beforeInit has truly finished.
 		let beforeInitResult: unknown;
 		try {
 			beforeInitResult = Sprincul.#runHook(model, "beforeInit", true, [defaults]);
@@ -154,16 +162,33 @@ export default class Sprincul {
 		}
 
 		if (beforeInitResult instanceof Promise) {
+			Sprincul.#pendingBeforeInit.add(model);
 			beforeInitResult
 				.catch((e) => console.error('Error in "beforeInit" hook call:', e))
-				.finally(() => core.runQueuedInitialCallbacks());
+				.finally(() => {
+					Sprincul.#pendingBeforeInit.delete(model);
+
+					// The instance may have been destroyed while beforeInit was still pending: its core
+					// is already gone, so don't resurrect it by firing callbacks/listeners/afterInit now.
+					if (Sprincul.#destroying.has(model)) return;
+
+					core.runQueuedInitialCallbacks();
+					Sprincul.#runAfterInit(model, element);
+				});
 		} else {
 			core.runQueuedInitialCallbacks();
+			Sprincul.#runAfterInit(model, element);
 		}
 
-		// afterInit is called synchronously, right here, so it has genuinely been invoked by the time
-		// processModelElement returns (onReady depends on this). Its completion is not awaited though:
-		// async work inside it doesn't hold up ready callbacks or, below, cloak removal.
+		return { name: modelName, element, instance: model };
+	}
+
+	/**
+	 * Call afterInit and remove the element's cloak once it settles. Called synchronously right
+	 * after a synchronous beforeInit, or deferred until an async beforeInit's promise resolves; either
+	 * way, by the time this runs, bindings and event listeners are already active.
+	 */
+	static #runAfterInit(model: SprinculModel, element: HTMLElement): void {
 		let afterHook: unknown;
 		try {
 			afterHook = Sprincul.#runHook(model, "afterInit", true);
@@ -177,8 +202,6 @@ export default class Sprincul {
 					element.removeAttribute("data-cloaked");
 				}
 			});
-
-		return { name: modelName, element, instance: model };
 	}
 
 	/**
@@ -286,6 +309,16 @@ export default class Sprincul {
 	}
 
 	static #destroyInstance(model: SprinculModel): void {
+		// Guard re-entry: if beforeDestroy is still pending from an earlier destroy()/destroyAll()/
+		// unmount() call on this same instance (it stays in #instancesByName until #finishDestroy()
+		// runs), a second call here would invoke beforeDestroy twice. No-op instead.
+		if (Sprincul.#destroying.has(model)) return;
+		Sprincul.#destroying.add(model);
+
+		// If beforeInit was still pending when this instance got destroyed, its deferred continuation
+		// checks #destroying and skips firing callbacks/listeners/afterInit once beforeInit resolves,
+		// rather than resurrecting a model whose core is about to be torn down below.
+
 		// beforeDestroy is called synchronously so it starts running before the core tears down below.
 		// If it's synchronous (the common case), it has already finished by the time we get here, and
 		// teardown proceeds immediately, same element/tracking state as before. If it returns a Promise
