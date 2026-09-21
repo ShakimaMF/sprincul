@@ -110,9 +110,9 @@ export class SprinculCore {
 	}
 
 	/**
-	 * Fire the initial data-bind-* callback invocations and attach the queued on* event listeners
-	 * from setupBindings(). Call this once beforeInit has genuinely finished, so a user interaction
-	 * can't reach a model method before its state has been seeded.
+	 * Fires the initial data-bind-* callbacks and attaches the queued on* listeners from
+	 * setupBindings(). Call once beforeInit has genuinely finished, so a user interaction
+	 * can't reach a model method before its state is seeded.
 	 */
 	runQueuedInitialCallbacks() {
 		const queuedCallbacks = this.#pendingInitialCallbacks;
@@ -219,9 +219,7 @@ export class SprinculCore {
 		this.#computed.clear();
 		this.#pendingUpdates.clear();
 
-		// If this instance is destroyed while its beforeInit is still pending, drop anything
-		// setupBindings() queued: its deferred continuation shouldn't attach listeners or fire
-		// callbacks against a core that's already torn down.
+		// Drop anything setupBindings() queued, in case destroy() ran while beforeInit was pending
 		this.#pendingInitialCallbacks = [];
 		this.#pendingListeners = [];
 	}
@@ -283,8 +281,7 @@ export class SprinculCore {
 				element.removeAttribute(attr.name);
 
 				if (options.deferCallbacks) {
-					// Queue attachment until beforeInit has genuinely finished, so a fast or
-					// mid-async-beforeInit interaction can't reach the model before it's ready.
+					// Queue until beforeInit finishes, so it can't fire against unseeded state
 					this.#pendingListeners.push({ element, eventName, methodName });
 					return;
 				}

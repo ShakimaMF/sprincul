@@ -38,8 +38,7 @@ describe("Sprincul - Initialization", () => {
 			},
 		});
 
-		// Fires immediately, once afterInit has been called for every model, but before Model1's slow
-		// afterInit has resolved.
+		// Fires immediately, once afterInit is called for every model, but before Model1's resolves
 		expect(callbackFired).toBe(true);
 		expect(slowAfterInitCalled).toBe(true);
 		expect(slowAfterInitResolved).toBe(false);
@@ -371,9 +370,7 @@ describe("Sprincul - Initialization", () => {
 		class AsyncBeforeInit extends SprinculModel {
 			async beforeInit() {
 				await Promise.resolve();
-				// Set after the await: this only reaches the binding if init genuinely waits
-				// for the whole hook to resolve, not just the synchronous part of the call.
-				this.state.message = "Hello from async beforeInit!";
+				this.state.message = "Hello from async beforeInit!"; // set post-await
 			}
 
 			updateMessage(el: HTMLElement) {
@@ -417,8 +414,7 @@ describe("Sprincul - Initialization", () => {
 		Sprincul.register("SlowInitModel", SlowInitModel);
 		Sprincul.init();
 
-		// Click synchronously, right after init() returns: beforeInit is suspended at its await,
-		// so the listener must not be attached yet.
+		// beforeInit is suspended at its await, so the listener must not be attached yet
 		const button = container.querySelector("button") as HTMLButtonElement;
 		button.click();
 

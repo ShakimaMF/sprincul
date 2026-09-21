@@ -442,9 +442,7 @@ describe("Sprincul - Teardown", () => {
 			}
 			async beforeDestroy() {
 				await Promise.resolve();
-				// Set after the await: this only proves anything if teardown genuinely waits
-				// for the whole hook to resolve, not just the synchronous part of the call.
-				cleanedUp = true;
+				cleanedUp = true; // set post-await, so this only passes if teardown truly waited
 			}
 		}
 
@@ -533,8 +531,7 @@ describe("Sprincul - Teardown", () => {
 		resolveInit!();
 		await waitForDomUpdate();
 
-		// beforeInit's deferred continuation ran (it isn't cancelled), but the destroyed instance's
-		// queued callback/listener must not have fired or attached: no live core to run them against.
+		// beforeInit's continuation ran (it isn't cancelled), but its queue must not fire on a torn-down core
 		expect(bindCallCount).toBe(0);
 
 		const button = el.querySelector("button") as HTMLButtonElement;

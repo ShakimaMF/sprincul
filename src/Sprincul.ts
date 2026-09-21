@@ -21,13 +21,9 @@ export default class Sprincul {
 	static #processedElements = new WeakSet<HTMLElement>();
 	static #instancesByName = new Map<string, Set<SprinculModel>>();
 	static #modelNames = new WeakMap<SprinculModel, string>();
-	// Set the moment #destroyInstance is entered (before beforeDestroy even runs), so a second
-	// destroy()/destroyAll()/unmount() call on the same instance while teardown is still pending
-	// (an async beforeDestroy hasn't resolved yet) is a no-op instead of invoking beforeDestroy twice.
+	/** Instances mid-teardown: guards against a re-entrant destroy() invoking beforeDestroy twice. */
 	static #destroying = new WeakSet<SprinculModel>();
-	// Set while an async beforeInit is still pending, cleared once it resolves. Lets a destroy that
-	// happens mid-beforeInit skip firing the queued initial callbacks/listeners once it does resolve,
-	// and gates afterInit from running until beforeInit has genuinely finished.
+	/** Instances with a still-pending async beforeInit. */
 	static #pendingBeforeInit = new WeakSet<SprinculModel>();
 
 	static store = {
@@ -148,12 +144,8 @@ export default class Sprincul {
 
 		const defaults = core.setupBindings(element);
 
-		// beforeInit is called synchronously so it starts running before initial callbacks fire,
-		// event listeners attach, and afterInit runs below. If it's synchronous (the common case), it
-		// has already finished by the time we get here, and everything below proceeds immediately with
-		// its state changes in place. If it returns a Promise instead, we genuinely wait for it: none
-		// of that runs until it resolves, so nothing can see or run against state mid-flight, and no
-		// listener can reach the model before beforeInit has truly finished.
+		// beforeInit is called synchronously; if it returns a Promise, everything below (initial
+		// callbacks, listeners, afterInit) waits for it to resolve instead of running immediately.
 		let beforeInitResult: unknown;
 		try {
 			beforeInitResult = Sprincul.#runHook(model, "beforeInit", true, [defaults]);
@@ -167,9 +159,7 @@ export default class Sprincul {
 				.catch((e) => console.error('Error in "beforeInit" hook call:', e))
 				.finally(() => {
 					Sprincul.#pendingBeforeInit.delete(model);
-
-					// The instance may have been destroyed while beforeInit was still pending: its core
-					// is already gone, so don't resurrect it by firing callbacks/listeners/afterInit now.
+					// May have been destroyed while pending; don't resurrect a torn-down core.
 					if (Sprincul.#destroying.has(model)) return;
 
 					core.runQueuedInitialCallbacks();
@@ -183,11 +173,7 @@ export default class Sprincul {
 		return { name: modelName, element, instance: model };
 	}
 
-	/**
-	 * Call afterInit and remove the element's cloak once it settles. Called synchronously right
-	 * after a synchronous beforeInit, or deferred until an async beforeInit's promise resolves; either
-	 * way, by the time this runs, bindings and event listeners are already active.
-	 */
+	/** Calls afterInit and removes the element's cloak once it settles. */
 	static #runAfterInit(model: SprinculModel, element: HTMLElement): void {
 		let afterHook: unknown;
 		try {
@@ -309,23 +295,11 @@ export default class Sprincul {
 	}
 
 	static #destroyInstance(model: SprinculModel): void {
-		// Guard re-entry: if beforeDestroy is still pending from an earlier destroy()/destroyAll()/
-		// unmount() call on this same instance (it stays in #instancesByName until #finishDestroy()
-		// runs), a second call here would invoke beforeDestroy twice. No-op instead.
 		if (Sprincul.#destroying.has(model)) return;
 		Sprincul.#destroying.add(model);
 
-		// If beforeInit was still pending when this instance got destroyed, its deferred continuation
-		// checks #destroying and skips firing callbacks/listeners/afterInit once beforeInit resolves,
-		// rather than resurrecting a model whose core is about to be torn down below.
-
-		// beforeDestroy is called synchronously so it starts running before the core tears down below.
-		// If it's synchronous (the common case), it has already finished by the time we get here, and
-		// teardown proceeds immediately, same element/tracking state as before. If it returns a Promise
-		// instead, we genuinely wait for it: the core stays attached and this instance stays tracked
-		// until it resolves, so a remount attempt on the same element in the meantime is treated as
-		// already processed (matching the mid-synchronous-teardown case) rather than creating a second
-		// live instance on top of the first one's still-attached bindings.
+		// beforeDestroy is called synchronously; if it returns a Promise, the core stays attached and
+		// tracked until it resolves (a remount attempt in the meantime is treated as already processed).
 		let beforeDestroyResult: unknown;
 		try {
 			beforeDestroyResult = Sprincul.#runHook(model, "beforeDestroy", true);
