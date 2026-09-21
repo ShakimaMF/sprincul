@@ -140,11 +140,12 @@ export default class Sprincul {
 
 		const defaults = core.setupBindings(element);
 
-		// beforeInit is called synchronously so it starts running before initial callbacks fire below.
-		// If it's synchronous (the common case), it has already finished by the time we get here, and
-		// runQueuedInitialCallbacks() runs immediately with its state changes in place. If it returns a
-		// Promise instead, we genuinely wait for it: initial callbacks are deferred into its .then() so
-		// they still only ever see state as it was after beforeInit finished, not mid-flight.
+		// beforeInit is called synchronously so it starts running before initial callbacks fire and
+		// event listeners attach below. If it's synchronous (the common case), it has already finished
+		// by the time we get here, and runQueuedInitialCallbacks() runs immediately with its state
+		// changes in place. If it returns a Promise instead, we genuinely wait for it: callbacks and
+		// listener attachment are deferred into its .then() so neither can see or run against state
+		// mid-flight, and no listener can reach the model before beforeInit has truly finished.
 		let beforeInitResult: unknown;
 		try {
 			beforeInitResult = Sprincul.#runHook(model, "beforeInit", true, [defaults]);

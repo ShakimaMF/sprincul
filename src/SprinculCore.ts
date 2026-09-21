@@ -14,6 +14,7 @@ export class SprinculCore {
 	#pendingUpdates = new Set<string>();
 	#updateScheduled: boolean = false;
 	#pendingInitialCallbacks: Array<{ element: HTMLElement; callback: string }> = [];
+	#pendingListeners: Array<{ element: HTMLElement; eventName: string; methodName: string }> = [];
 	readonly #isBrowser: boolean;
 
 	constructor(
@@ -108,10 +109,21 @@ export class SprinculCore {
 		this.#processTree(element, { deferCallbacks: false });
 	}
 
+	/**
+	 * Fire the initial data-bind-* callback invocations and attach the queued on* event listeners
+	 * from setupBindings(). Call this once beforeInit has genuinely finished, so a user interaction
+	 * can't reach a model method before its state has been seeded.
+	 */
 	runQueuedInitialCallbacks() {
-		const queued = this.#pendingInitialCallbacks;
+		const queuedCallbacks = this.#pendingInitialCallbacks;
 		this.#pendingInitialCallbacks = [];
-		queued.forEach((binding) => this.#updateElement(binding));
+		queuedCallbacks.forEach((binding) => this.#updateElement(binding));
+
+		const queuedListeners = this.#pendingListeners;
+		this.#pendingListeners = [];
+		queuedListeners.forEach(({ element, eventName, methodName }) =>
+			this.#attachListener(element, eventName, methodName),
+		);
 	}
 
 	#processTree(container: HTMLElement, options: { defaults?: BoundDefaults; deferCallbacks: boolean }) {
@@ -264,25 +276,35 @@ export class SprinculCore {
 				const methodName = attr.value;
 				element.removeAttribute(attr.name);
 
-				// Bind the event to the model method
-				const eventFn = Reflect.get(this.instance, methodName);
-				if (typeof eventFn !== "function") {
-					this.#warn(`Event handler method "${methodName}" not found for ${attr.name}.`);
+				if (options.deferCallbacks) {
+					// Queue attachment until beforeInit has genuinely finished, so a fast or
+					// mid-async-beforeInit interaction can't reach the model before it's ready.
+					this.#pendingListeners.push({ element, eventName, methodName });
 					return;
 				}
 
-				const listener: EventListener = (e: Event) => {
-					try {
-						eventFn.call(this.instance, e);
-					} catch (error) {
-						console.error(`Error in event handler "${methodName}" for event "${eventName}":`, error);
-					}
-				};
-
-				element.addEventListener(eventName, listener);
-				this.#domListeners.add({ element, type: eventName, listener });
+				this.#attachListener(element, eventName, methodName);
 			}
 		});
+	}
+
+	#attachListener(element: HTMLElement, eventName: string, methodName: string) {
+		const eventFn = Reflect.get(this.instance, methodName);
+		if (typeof eventFn !== "function") {
+			this.#warn(`Event handler method "${methodName}" not found for on${eventName}.`);
+			return;
+		}
+
+		const listener: EventListener = (e: Event) => {
+			try {
+				eventFn.call(this.instance, e);
+			} catch (error) {
+				console.error(`Error in event handler "${methodName}" for event "${eventName}":`, error);
+			}
+		};
+
+		element.addEventListener(eventName, listener);
+		this.#domListeners.add({ element, type: eventName, listener });
 	}
 
 	#trackBinding(prop: string, element: HTMLElement, callback: string) {

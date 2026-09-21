@@ -393,4 +393,35 @@ describe("Sprincul - Initialization", () => {
 
 		expect(span?.textContent).toBe("Hello from async beforeInit!");
 	});
+
+	test("on* event listeners are not live until beforeInit has genuinely finished", () => {
+		container.innerHTML = html`
+			<div data-model="SlowInitModel">
+				<button onclick="increment">+</button>
+			</div>
+		`;
+
+		let stateWhenClicked: number | "unset" | undefined;
+
+		class SlowInitModel extends SprinculModel {
+			async beforeInit() {
+				await Promise.resolve();
+				this.state.count = 0;
+			}
+
+			increment() {
+				stateWhenClicked = this.state.count ?? "unset";
+			}
+		}
+
+		Sprincul.register("SlowInitModel", SlowInitModel);
+		Sprincul.init();
+
+		// Click synchronously, right after init() returns: beforeInit is suspended at its await,
+		// so the listener must not be attached yet.
+		const button = container.querySelector("button") as HTMLButtonElement;
+		button.click();
+
+		expect(stateWhenClicked).toBeUndefined();
+	});
 });
