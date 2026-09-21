@@ -236,7 +236,7 @@ export class SprinculCore {
 				this.#trackBinding(propertyName, element, callbackName);
 
 				// Capture server-rendered content before any callback touches it (first element wins)
-				if (options.defaults && !(propertyName in options.defaults)) {
+				if (options.defaults && !Object.prototype.hasOwnProperty.call(options.defaults, propertyName)) {
 					const isCheckable =
 						element instanceof HTMLInputElement && (element.type === "checkbox" || element.type === "radio");
 					const isMultiSelect = element instanceof HTMLSelectElement && element.multiple;

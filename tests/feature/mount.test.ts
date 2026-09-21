@@ -232,4 +232,17 @@ describe("Sprincul - Manual Mount API", () => {
 
 		expect(receivedInfo).not.toHaveProperty("instance");
 	});
+
+	test("mount() throws if beforeInit synchronously destroys its own instance", () => {
+		class SelfDestroyModel extends SprinculModel {
+			beforeInit() {
+				Sprincul.unmount(this.$el);
+			}
+		}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+
+		expect(() => Sprincul.mount(el, SelfDestroyModel)).toThrow();
+	});
 });

@@ -420,4 +420,31 @@ describe("Sprincul - Initialization", () => {
 
 		expect(stateWhenClicked).toBeUndefined();
 	});
+
+	test("a beforeInit that synchronously destroys its own instance is excluded from onReady and afterInit", () => {
+		let afterInitCalled = false;
+
+		container.innerHTML = html`<div data-model="SelfDestroyModel"></div>`;
+
+		class SelfDestroyModel extends SprinculModel {
+			beforeInit() {
+				Sprincul.unmount(this.$el);
+			}
+			afterInit() {
+				afterInitCalled = true;
+			}
+		}
+		Sprincul.register("SelfDestroyModel", SelfDestroyModel);
+
+		let readyModels: any[] | undefined;
+		Sprincul.init({
+			devMode: true,
+			onReady: (models: any[]) => {
+				readyModels = models;
+			},
+		});
+
+		expect(afterInitCalled).toBe(false);
+		expect(readyModels).toHaveLength(0);
+	});
 });

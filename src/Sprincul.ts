@@ -166,6 +166,10 @@ export default class Sprincul {
 					Sprincul.#runAfterInit(model, element);
 				});
 		} else {
+			// beforeInit may have synchronously destroyed this very instance (e.g. called unmount()
+			// on itself); don't run afterInit or report it as ready if so.
+			if (Sprincul.#destroying.has(model)) return null;
+
 			core.runQueuedInitialCallbacks();
 			Sprincul.#runAfterInit(model, element);
 		}
