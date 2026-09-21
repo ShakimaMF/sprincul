@@ -1,9 +1,10 @@
-dist
+dist/
 logs
 *.log
 pnpm-debug.log*
 node_modules
 *.tgz
+meta.json
 
 # Editor directories and files
 .vscode/*
