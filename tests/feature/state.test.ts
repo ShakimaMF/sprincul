@@ -1,15 +1,15 @@
 /// <reference lib="dom" />
 import { expect, test, describe } from "bun:test";
-import { waitForDomUpdate } from "../helpers.ts";
+import { html, waitForDomUpdate } from "../helpers.ts";
 
 describe("Sprincul - State Management", () => {
 	test("updates UI when state changes", async () => {
-		container.innerHTML = `
-        <div data-model="TestModel">
-          <button onclick="increment">Increment</button>
-          <span data-bind-count="updateCount"></span>
-        </div>
-      `;
+		container.innerHTML = html`
+			<div data-model="TestModel">
+				<button onclick="increment">Increment</button>
+				<span data-bind-count="updateCount"></span>
+			</div>
+		`;
 
 		class TestModel extends SprinculModel {
 			beforeInit() {
@@ -40,13 +40,13 @@ describe("Sprincul - State Management", () => {
 	});
 
 	test("updates multiple elements bound to same property", async () => {
-		container.innerHTML = `
-        <div data-model="TestModel">
-          <button onclick="updateMessage">Update</button>
-          <span data-bind-message="updateText"></span>
-          <div data-bind-message="updateText"></div>
-        </div>
-      `;
+		container.innerHTML = html`
+			<div data-model="TestModel">
+				<button onclick="updateMessage">Update</button>
+				<span data-bind-message="updateText"></span>
+				<div data-bind-message="updateText"></div>
+			</div>
+		`;
 
 		class TestModel extends SprinculModel {
 			beforeInit() {
@@ -80,19 +80,17 @@ describe("Sprincul - State Management", () => {
 	});
 
 	test("updates computed properties when dependencies change", async () => {
-		container.innerHTML = `
-        <div data-model="TestModel">
-          <button onclick="increment">Increment</button>
-          <span data-bind-doubled="updateDoubled"></span>
-        </div>
-      `;
+		container.innerHTML = html`
+			<div data-model="TestModel">
+				<button onclick="increment">Increment</button>
+				<span data-bind-doubled="updateDoubled"></span>
+			</div>
+		`;
 
 		class TestModel extends SprinculModel {
 			beforeInit() {
 				this.state.count = 5;
-				this.addComputedProp("doubled", () => this.state.count * 2, [
-					"count",
-				]);
+				this.addComputedProp("doubled", () => this.state.count * 2, ["count"]);
 			}
 
 			increment() {
@@ -119,12 +117,12 @@ describe("Sprincul - State Management", () => {
 	});
 
 	test("batches multiple state changes into single render pass", async () => {
-		container.innerHTML = `
-        <div data-model="TestModel">
-          <button onclick="multipleChanges">Update Multiple</button>
-          <span data-bind-count="updateCount"></span>
-        </div>
-      `;
+		container.innerHTML = html`
+			<div data-model="TestModel">
+				<button onclick="multipleChanges">Update Multiple</button>
+				<span data-bind-count="updateCount"></span>
+			</div>
+		`;
 
 		let callCount = 0;
 

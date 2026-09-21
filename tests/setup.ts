@@ -1,11 +1,11 @@
 import { afterEach, beforeEach } from "bun:test";
-import {
-	loadIsolatedApi,
-	setCurrentIsolatedApi,
-	getCurrentIsolatedApi,
-} from "./helpers.ts";
+import * as registerDom from "./register-happydom.ts";
+import { loadIsolatedApi, setCurrentIsolatedApi, getCurrentIsolatedApi } from "./helpers.ts";
 
 beforeEach(async () => {
+	// A fresh window/document per test
+	registerDom.register();
+
 	const api = await loadIsolatedApi();
 	globalThis.Sprincul = api.Sprincul;
 	globalThis.SprinculModel = api.SprinculModel;
@@ -14,8 +14,9 @@ beforeEach(async () => {
 	setCurrentIsolatedApi(api);
 });
 
-afterEach(() => {
+afterEach(async () => {
 	const api = getCurrentIsolatedApi();
+	api.Sprincul.destroyAll();
 	globalThis.container?.remove();
 	api.cleanup();
 	setCurrentIsolatedApi(null);
@@ -23,4 +24,6 @@ afterEach(() => {
 	globalThis.container = undefined;
 	globalThis.Sprincul = undefined;
 	globalThis.SprinculModel = undefined;
+
+	await registerDom.unregister();
 });

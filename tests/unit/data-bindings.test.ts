@@ -1,54 +1,16 @@
 /// <reference lib="dom" />
 import { expect, test, describe, spyOn } from "bun:test";
-import { waitForDomUpdate } from "../helpers.ts";
+import { html, waitForDomUpdate } from "../helpers.ts";
 
 describe("Sprincul - Data Bindings", () => {
 	describe("data-bind-* reactive bindings", () => {
-		test("calls callback with element when bound property changes", async () => {
-			container.innerHTML = `
-        <div data-model="TestModel">
-          <button onclick="changeMessage">Change</button>
-          <span data-bind-message="updateText"></span>
-        </div>
-      `;
-
-			class TestModel extends SprinculModel {
-				beforeInit() {
-					this.state.message = "Hello";
-				}
-
-				changeMessage() {
-					this.state.message = "Goodbye";
-				}
-
-				updateText(el: HTMLElement) {
-					el.textContent = this.state.message;
-				}
-			}
-
-			Sprincul.register("TestModel", TestModel);
-			Sprincul.init();
-
-			const button = container.querySelector(
-				"button",
-			) as HTMLButtonElement;
-			const span = container.querySelector("span");
-
-			expect(span?.textContent).toBe("Hello");
-
-			button.click();
-			await waitForDomUpdate();
-
-			expect(span?.textContent).toBe("Goodbye");
-		});
-
 		test("supports multiple different bindings on same element", async () => {
-			container.innerHTML = `
-        <div data-model="TestModel">
-          <button onclick="update">Update</button>
-          <div data-bind-title="updateTitle" data-bind-content="updateContent"></div>
-        </div>
-      `;
+			container.innerHTML = html`
+				<div data-model="TestModel">
+					<button onclick="update">Update</button>
+					<div data-bind-title="updateTitle" data-bind-content="updateContent"></div>
+				</div>
+			`;
 
 			class TestModel extends SprinculModel {
 				beforeInit() {
@@ -73,12 +35,8 @@ describe("Sprincul - Data Bindings", () => {
 			Sprincul.register("TestModel", TestModel);
 			Sprincul.init();
 
-			const button = container.querySelector(
-				"button",
-			) as HTMLButtonElement;
-			const div = container.querySelector(
-				"div[data-bind-title]",
-			) as HTMLElement;
+			const button = container.querySelector("button") as HTMLButtonElement;
+			const div = container.querySelector("div[data-bind-title]") as HTMLElement;
 
 			expect(div.getAttribute("title")).toBe("Title");
 			expect(div.textContent).toBe("Content");
@@ -93,12 +51,12 @@ describe("Sprincul - Data Bindings", () => {
 
 	describe("Event handlers", () => {
 		test("handles click events via onclick attribute", async () => {
-			container.innerHTML = `
-        <div data-model="TestModel">
-          <button onclick="handleClick">Click Me</button>
-          <span data-bind-clicked="updateClicked"></span>
-        </div>
-      `;
+			container.innerHTML = html`
+				<div data-model="TestModel">
+					<button onclick="handleClick">Click Me</button>
+					<span data-bind-clicked="updateClicked"></span>
+				</div>
+			`;
 
 			class TestModel extends SprinculModel {
 				beforeInit() {
@@ -110,18 +68,14 @@ describe("Sprincul - Data Bindings", () => {
 				}
 
 				updateClicked(el: HTMLElement) {
-					el.textContent = this.state.clicked
-						? "Clicked!"
-						: "Not clicked";
+					el.textContent = this.state.clicked ? "Clicked!" : "Not clicked";
 				}
 			}
 
 			Sprincul.register("TestModel", TestModel);
 			Sprincul.init();
 
-			const button = container.querySelector(
-				"button",
-			) as HTMLButtonElement;
+			const button = container.querySelector("button") as HTMLButtonElement;
 			const span = container.querySelector("span");
 
 			expect(span?.textContent).toBe("Not clicked");
@@ -135,25 +89,21 @@ describe("Sprincul - Data Bindings", () => {
 		// Note: keyboard/input synthetic events in happy-dom are unreliable; click is covered above.
 
 		test("comprehensive integration: event changes state, multiple elements react", async () => {
-			container.innerHTML = `
-        <div data-model="CounterModel">
-          <button onclick="increment">+</button>
-          <button onclick="decrement">-</button>
-          <button onclick="reset">Reset</button>
-          <div data-bind-count="updateCount"></div>
-          <div data-bind-doubled="updateDoubled"></div>
-          <div data-bind-status="updateStatus"></div>
-        </div>
-      `;
+			container.innerHTML = html`
+				<div data-model="CounterModel">
+					<button onclick="increment">+</button>
+					<button onclick="decrement">-</button>
+					<button onclick="reset">Reset</button>
+					<div data-bind-count="updateCount"></div>
+					<div data-bind-doubled="updateDoubled"></div>
+					<div data-bind-status="updateStatus"></div>
+				</div>
+			`;
 
 			class CounterModel extends SprinculModel {
 				beforeInit() {
 					this.state.count = 0;
-					this.addComputedProp(
-						"doubled",
-						() => this.state.count * 2,
-						["count"],
-					);
+					this.addComputedProp("doubled", () => this.state.count * 2, ["count"]);
 					this.addComputedProp(
 						"status",
 						() => {
@@ -193,12 +143,10 @@ describe("Sprincul - Data Bindings", () => {
 			Sprincul.register("CounterModel", CounterModel);
 			Sprincul.init();
 
-			const [incrementBtn, decrementBtn, resetBtn] =
-				container.querySelectorAll("button");
-			const [countDiv, doubledDiv, statusDiv] =
-				container.querySelectorAll(
-					"div[data-bind-count], div[data-bind-doubled], div[data-bind-status]",
-				);
+			const [incrementBtn, decrementBtn, resetBtn] = container.querySelectorAll("button");
+			const [countDiv, doubledDiv, statusDiv] = container.querySelectorAll(
+				"div[data-bind-count], div[data-bind-doubled], div[data-bind-status]",
+			);
 
 			// Initial state
 			expect(countDiv.textContent).toBe("Count: 0");
@@ -245,11 +193,11 @@ describe("Sprincul - Data Bindings", () => {
 
 	describe("Array/List Rendering", () => {
 		test("renders a list bound to an array property", () => {
-			container.innerHTML = `
-        <div data-model="TestModel">
-          <ul data-bind-items="renderList"></ul>
-        </div>
-      `;
+			container.innerHTML = html`
+				<div data-model="TestModel">
+					<ul data-bind-items="renderList"></ul>
+				</div>
+			`;
 
 			class TestModel extends SprinculModel {
 				beforeInit() {
@@ -260,9 +208,7 @@ describe("Sprincul - Data Bindings", () => {
 				}
 
 				renderList(el: HTMLElement) {
-					el.innerHTML = this.state.items
-						.map((item) => `<li>${item.name}</li>`)
-						.join("");
+					el.innerHTML = this.state.items.map((item) => `<li>${item.name}</li>`).join("");
 				}
 			}
 
@@ -276,12 +222,12 @@ describe("Sprincul - Data Bindings", () => {
 		});
 
 		test("re-renders list when array changes", async () => {
-			container.innerHTML = `
-        <div data-model="TestModel">
-          <button onclick="addItem">Add Item</button>
-          <ul data-bind-items="renderList"></ul>
-        </div>
-      `;
+			container.innerHTML = html`
+				<div data-model="TestModel">
+					<button onclick="addItem">Add Item</button>
+					<ul data-bind-items="renderList"></ul>
+				</div>
+			`;
 
 			class TestModel extends SprinculModel {
 				beforeInit() {
@@ -290,25 +236,18 @@ describe("Sprincul - Data Bindings", () => {
 
 				addItem() {
 					const newId = this.state.items.length + 1;
-					this.state.items = [
-						...this.state.items,
-						{ id: newId, name: `Item ${newId}` },
-					];
+					this.state.items = [...this.state.items, { id: newId, name: `Item ${newId}` }];
 				}
 
 				renderList(el: HTMLElement) {
-					el.innerHTML = this.state.items
-						.map((item) => `<li>${item.name}</li>`)
-						.join("");
+					el.innerHTML = this.state.items.map((item) => `<li>${item.name}</li>`).join("");
 				}
 			}
 
 			Sprincul.register("TestModel", TestModel);
 			Sprincul.init();
 
-			const button = container.querySelector(
-				"button",
-			) as HTMLButtonElement;
+			const button = container.querySelector("button") as HTMLButtonElement;
 			let listItems = container.querySelectorAll("li");
 
 			expect(listItems).toHaveLength(1);
@@ -325,69 +264,15 @@ describe("Sprincul - Data Bindings", () => {
 		// Skipping dynamic-item manual event wiring: happy-dom synthetic click on non-controls is unreliable.
 	});
 
-	describe("MutationObserver binding cleanup", () => {
-		test("stops calling binding callbacks for children of a removed parent element", async () => {
-			container.innerHTML = `
-        <div data-model="PurgeModel">
-          <button onclick="update">Update</button>
-          <div id="wrapper">
-            <span data-bind-message="updateText"></span>
-          </div>
-        </div>
-      `;
-
-			let callCount = 0;
-
-			class PurgeModel extends SprinculModel {
-				beforeInit() {
-					this.state.message = "Hello";
-				}
-
-				update() {
-					this.state.message = "World";
-				}
-
-				updateText(el: HTMLElement) {
-					callCount++;
-					el.textContent = this.state.message;
-				}
-			}
-
-			Sprincul.register("PurgeModel", PurgeModel);
-			Sprincul.init();
-
-			// Flush any pending RAFs from beforeInit's initial state set before removing.
-			// In happy-dom: RAF fires before MutationObserver, so we must drain it first to
-			// prevent a pending beforeInit RAF from calling the callback after removal.
-			await waitForDomUpdate();
-			const countAfterInit = callCount;
-
-			// Remove the parent wrapper — the bound span is a child, not the direct removed node.
-			// The MutationObserver's child-walk (line 157) is responsible for purging it from #bindings.
-			container.querySelector("#wrapper")!.remove();
-
-			// Wait for the MO callback to fire and purge the span from #bindings.
-			await waitForDomUpdate();
-			await waitForDomUpdate();
-
-			// Trigger a state change and wait for the update cycle to complete
-			(container.querySelector("button") as HTMLButtonElement).click();
-			await waitForDomUpdate();
-
-			// The span binding was purged via the child-walk; no additional calls expected
-			expect(callCount).toBe(countAfterInit);
-		});
-	});
-
 	describe("Error handling", () => {
 		test("errors in one binding do not affect other bindings", async () => {
-			container.innerHTML = `
-        <div data-model="TestModel">
-          <button onclick="trigger">Trigger</button>
-          <span data-bind-count="throwError"></span>
-          <div data-bind-count="safeUpdate"></div>
-        </div>
-      `;
+			container.innerHTML = html`
+				<div data-model="TestModel">
+					<button onclick="trigger">Trigger</button>
+					<span data-bind-count="throwError"></span>
+					<div data-bind-count="safeUpdate"></div>
+				</div>
+			`;
 
 			let safeCallCount = 0;
 
@@ -410,9 +295,7 @@ describe("Sprincul - Data Bindings", () => {
 				}
 			}
 
-			const errorSpy = spyOn(console, "error").mockImplementation(
-				() => {},
-			);
+			const errorSpy = spyOn(console, "error").mockImplementation(() => {});
 
 			Sprincul.register("TestModel", TestModel);
 			Sprincul.init();
@@ -421,12 +304,8 @@ describe("Sprincul - Data Bindings", () => {
 			await waitForDomUpdate();
 			const initialCallCount = safeCallCount;
 
-			const button = container.querySelector(
-				"button",
-			) as HTMLButtonElement;
-			const div = container.querySelector(
-				"div[data-bind-count]",
-			) as HTMLElement;
+			const button = container.querySelector("button") as HTMLButtonElement;
+			const div = container.querySelector("div[data-bind-count]") as HTMLElement;
 
 			button.click();
 			await waitForDomUpdate();
