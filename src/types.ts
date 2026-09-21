@@ -41,3 +41,24 @@ export type BoundElementDefault = {
  * This can be used to initialize the model's state with server-rendered data.
  */
 export type BoundDefaults = Record<string, BoundElementDefault>;
+
+/**
+ * Options accepted by `init()`.
+ *
+ * - `devMode`: Include the model instance in `onReady` payloads and log dev-only warnings. Default `false`.
+ * - `root`: Element to scope this scan to, instead of the whole page. Default `document.body`.
+ * - `onReady`: Called once every model scanned is wired up, and init callbacks (`beforeInit`/`afterInit`) are called.
+ */
+export type SprinculInitOptions = {
+	devMode?: boolean;
+	root?: HTMLElement;
+	onReady?: (models: SprinculModelInfo[]) => void;
+};
+
+/**
+ * Options accepted by `mount()`.
+ *
+ * - `devMode`: Include the model instance in the `onReady` payload and log dev-only warnings. Default `false`.
+ * - `onReady`: Called once this instance is wired up, and init callbacks (`beforeInit`/`afterInit`) are called.
+ */
+export type SprinculMountOptions = { devMode?: boolean; onReady?: (model: SprinculModelInfo) => void };
