@@ -2,6 +2,7 @@ import { atom } from "nanostores";
 import { SprinculCore } from "./SprinculCore";
 import SprinculModel from "./SprinculModel";
 import type {
+	BoundDefaults,
 	SprinculInitOptions,
 	SprinculModelConstructor,
 	SprinculModelInfo,
@@ -137,12 +138,25 @@ export default class Sprincul {
 		Sprincul.#processedElements.add(element);
 
 		// Create user's model instance, then link internal core instance
-		const model = new ModelClass(element);
-		const core = new SprinculCore(model, devMode);
-		setCore(model, core);
-		Sprincul.#trackModelInstance(modelName, model);
+		let model: SprinculModel | undefined;
+		let core: SprinculCore;
+		let defaults: BoundDefaults;
+		try {
+			model = new ModelClass(element);
+			core = new SprinculCore(model, devMode);
+			setCore(model, core);
+			Sprincul.#trackModelInstance(modelName, model);
 
-		const defaults = core.setupBindings(element);
+			defaults = core.setupBindings(element);
+		} catch (e) {
+			// Leave no half-mounted element behind, or it could never be mounted again
+			Sprincul.#processedElements.delete(element);
+			if (model) {
+				deleteCore(model);
+				Sprincul.#untrackModelInstance(model);
+			}
+			throw e;
+		}
 
 		// beforeInit is called synchronously; if it returns a Promise, everything below (initial
 		// callbacks, listeners, afterInit) waits for it to resolve instead of running immediately.
@@ -233,11 +247,21 @@ export default class Sprincul {
 			}
 		}
 
+		const previousModelName = element.dataset.model;
 		element.dataset.model = modelName;
 
 		const devMode = options?.devMode ?? false;
-		const info = Sprincul.processModelElement(element, devMode);
+
+		let info: SprinculModelInfo | null;
+		try {
+			info = Sprincul.processModelElement(element, devMode);
+		} catch (e) {
+			Sprincul.#restoreModelName(element, previousModelName);
+			throw e;
+		}
+
 		if (!info || !info.instance) {
+			Sprincul.#restoreModelName(element, previousModelName);
 			throw new Error(`Failed to mount model on element. It may already be processed. Call unmount() first.`);
 		}
 
@@ -277,15 +301,25 @@ export default class Sprincul {
 	 */
 	static destroy(modelName: string, element?: HTMLElement): void {
 		const instances = Sprincul.#instancesByName.get(modelName);
-		if (!instances || instances.size === 0) return;
 
 		if (element) {
-			const target = Array.from(instances).find((instance) => instance.$el === element);
+			const target = Array.from(instances ?? []).find((instance) => instance.$el === element);
 			if (target) {
 				Sprincul.#destroyInstance(target);
+				return;
+			}
+
+			// Warn only when the element is actually mounted under a different name: destroying an
+			// already-destroyed element is a legitimate idempotent call
+			if (element.dataset.model && element.dataset.model !== modelName) {
+				console.warn(
+					`[Sprincul] destroy("${modelName}") found no instance on an element mounted as "${element.dataset.model}".`,
+				);
 			}
 			return;
 		}
+
+		if (!instances || instances.size === 0) return;
 
 		Array.from(instances).forEach((instance) => {
 			Sprincul.#destroyInstance(instance);
@@ -331,6 +365,14 @@ export default class Sprincul {
 		}
 		Sprincul.#processedElements.delete(model.$el);
 		Sprincul.#untrackModelInstance(model);
+	}
+
+	static #restoreModelName(element: HTMLElement, previousModelName: string | undefined): void {
+		if (previousModelName === undefined) {
+			delete element.dataset.model;
+			return;
+		}
+		element.dataset.model = previousModelName;
 	}
 
 	static #trackModelInstance(modelName: string, model: SprinculModel): void {

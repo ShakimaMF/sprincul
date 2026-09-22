@@ -74,6 +74,28 @@ export default class SprinculModel {
 	}
 
 	/**
+	 * Release what wire() registered within an element and its descendants.
+	 * Call this before discarding content a model rebuilds on every render.
+	 *
+	 * Bindings from the model's own server-rendered markup are left alone, so a binding callback
+	 * can safely unwire the container it was handed.
+	 *
+	 * @param {HTMLElement} element - The element whose wired content to release. Call this before detaching it.
+	 * @return {void} Does not return a value.
+	 * @throws {Error} If the method is called before the core is available.
+	 */
+	unwire(element: HTMLElement): void {
+		const core = this.#core || getCore(this);
+		if (!core) {
+			throw new Error(
+				`[Sprincul] unwire() called before core was available. Call it from beforeInit() or later instead.`,
+			);
+		}
+
+		core.unwireElement(element);
+	}
+
+	/**
 	 * Add a computed property that derives its value from state
 	 * The computed property will re-calculate only when the specified dependencies change
 	 *

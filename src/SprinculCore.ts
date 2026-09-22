@@ -2,18 +2,25 @@ import { computed, type ReadableAtom, type MapStore } from "nanostores";
 import type SprinculModel from "./SprinculModel";
 import type { BoundDefaults, DomListenerRecord } from "./types";
 
+type ProcessOptions = { defaults?: BoundDefaults; deferCallbacks: boolean; viaWire?: boolean };
+
+/** `viaWire` marks bindings registered by wire() rather than the initial scan, so unwire() releases only what wiring added. */
+type BindingRecord = { prop: string; element: HTMLElement; callback: string; viaWire: boolean };
+
 /**
  * @class SprinculCore
  * @description Framework base class. Handles all binding, computed properties, and event-listener wiring for a single model instance.
  */
 export class SprinculCore {
-	#bindings = new Map<string, Set<{ element: HTMLElement; callback: string }>>();
+	#bindings = new Map<string, Set<BindingRecord>>();
+	/** element -> its own binding records, so dedupe and subtree release don't scan every binding */
+	#bindingsByElement = new Map<HTMLElement, Set<BindingRecord>>();
 	#computed = new Map<string, ReadableAtom>();
 	#domListeners = new Set<DomListenerRecord>();
 	#unsubscribers = new Set<() => void>();
 	#pendingUpdates = new Set<string>();
 	#updateScheduled: boolean = false;
-	#pendingInitialCallbacks: Array<{ element: HTMLElement; callback: string }> = [];
+	#pendingInitialCallbacks: Array<BindingRecord> = [];
 	#pendingListeners: Array<{ element: HTMLElement; eventName: string; methodName: string }> = [];
 	readonly #isBrowser: boolean;
 
@@ -106,7 +113,48 @@ export class SprinculCore {
 	}
 
 	processAddedElement(element: HTMLElement) {
-		this.#processTree(element, { deferCallbacks: false });
+		this.#processTree(element, { deferCallbacks: false, viaWire: true });
+	}
+
+	/**
+	 * Reverses wire() for `element` and its descendants. Call before discarding a wired subtree.
+	 */
+	unwireElement(element: HTMLElement) {
+		// contains() is true for the node itself, so this covers the element and its descendants
+		const isInScope = (candidate: HTMLElement) => element.contains(candidate);
+
+		// Walk the tracked elements rather than the DOM, so descendants already detached from
+		// this subtree are still released
+		Array.from(this.#bindingsByElement.keys()).forEach((node) => {
+			if (!isInScope(node)) return;
+
+			const elementBindings = this.#bindingsByElement.get(node)!;
+			elementBindings.forEach((record) => {
+				// Bindings from the initial scan belong to the model's own markup: releasing them
+				// would silently stop a callback that unwires the container it was handed
+				if (!record.viaWire) return;
+
+				const bindings = this.#bindings.get(record.prop);
+				if (bindings) {
+					bindings.delete(record);
+					if (bindings.size === 0) this.#bindings.delete(record.prop);
+				}
+				elementBindings.delete(record);
+			});
+
+			if (elementBindings.size === 0) this.#bindingsByElement.delete(node);
+		});
+
+		this.#domListeners.forEach((record) => {
+			if (!isInScope(record.element)) return;
+			record.element.removeEventListener(record.type, record.listener, record.options);
+			this.#domListeners.delete(record);
+		});
+
+		this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter(
+			(binding) => !isInScope(binding.element),
+		);
+		this.#pendingListeners = this.#pendingListeners.filter((listener) => !isInScope(listener.element));
 	}
 
 	/**
@@ -117,6 +165,11 @@ export class SprinculCore {
 	runQueuedInitialCallbacks() {
 		const queuedCallbacks = this.#pendingInitialCallbacks;
 		this.#pendingInitialCallbacks = [];
+
+		// Drop what beforeInit's own writes scheduled before rendering, not after: these callbacks
+		// render current state, and one of them may schedule an update of its own that must survive
+		queuedCallbacks.forEach((binding) => this.#pendingUpdates.delete(binding.prop));
+
 		queuedCallbacks.forEach((binding) => this.#updateElement(binding));
 
 		const queuedListeners = this.#pendingListeners;
@@ -126,7 +179,7 @@ export class SprinculCore {
 		);
 	}
 
-	#processTree(container: HTMLElement, options: { defaults?: BoundDefaults; deferCallbacks: boolean }) {
+	#processTree(container: HTMLElement, options: ProcessOptions) {
 		const isNestedModelRoot = container.hasAttribute("data-model") && container !== this.instance.$el;
 		const closestModelElement = container.closest("[data-model]");
 		const withinThisModel = container === this.instance.$el || closestModelElement === this.instance.$el;
@@ -198,7 +251,10 @@ export class SprinculCore {
 		if (!this.#updateScheduled) {
 			this.#updateScheduled = true;
 			requestAnimationFrame(() => {
-				this.#pendingUpdates.forEach((prop) => this.#updateDependentElements(prop));
+				// One pass per frame: an element bound to both a source prop and a computed derived
+				// from it would otherwise run the same callback once per prop
+				const updated = new Map<HTMLElement, Set<string>>();
+				this.#pendingUpdates.forEach((prop) => this.#updateDependentElements(prop, updated));
 				this.#pendingUpdates.clear();
 				this.#updateScheduled = false;
 			});
@@ -216,6 +272,7 @@ export class SprinculCore {
 		});
 		this.#domListeners.clear();
 		this.#bindings.clear();
+		this.#bindingsByElement.clear();
 		this.#computed.clear();
 		this.#pendingUpdates.clear();
 
@@ -225,15 +282,17 @@ export class SprinculCore {
 	}
 
 	// Process all data-bind-* attributes and on* event handlers for an element
-	#processElementBindings(element: HTMLElement, options: { defaults?: BoundDefaults; deferCallbacks: boolean }) {
+	#processElementBindings(element: HTMLElement, options: ProcessOptions) {
 		Array.from(element.attributes).forEach((attr) => {
 			// Handle data-bind-* attributes for reactive property bindings (e.g. data-bind-<prop>="callbackFn")
 			if (attr.name.startsWith("data-bind-")) {
 				const propertyName = attr.name.substring("data-bind-".length); // The state property to watch
 				const callbackName = attr.value; // The callback to call when it changes
 
-				// Track this binding: when propertyName changes, update this element
-				this.#trackBinding(propertyName, element, callbackName);
+				const alreadyBound = this.#trackBinding(propertyName, element, callbackName, options.viaWire === true);
+
+				// Re-invoking the callback here lets a callback that re-wires its own container recurse forever
+				if (alreadyBound) return;
 
 				// Capture server-rendered content before any callback touches it (first element wins)
 				if (options.defaults && !Object.prototype.hasOwnProperty.call(options.defaults, propertyName)) {
@@ -261,7 +320,12 @@ export class SprinculCore {
 				}
 
 				if (options.deferCallbacks) {
-					this.#pendingInitialCallbacks.push({ element, callback: callbackName });
+					this.#pendingInitialCallbacks.push({
+						prop: propertyName,
+						element,
+						callback: callbackName,
+						viaWire: options.viaWire === true,
+					});
 					return;
 				}
 
@@ -275,7 +339,7 @@ export class SprinculCore {
 			}
 
 			// Handle on* event attributes (onclick, onkeydown, etc.)
-			if (attr.name.startsWith("on") && attr.name.length > 2) {
+			if (this.#isEventAttribute(element, attr.name)) {
 				const eventName = attr.name.substring(2); // Remove 'on' prefix
 				const methodName = attr.value;
 				element.removeAttribute(attr.name);
@@ -289,6 +353,16 @@ export class SprinculCore {
 				this.#attachListener(element, eventName, methodName);
 			}
 		});
+	}
+
+	/**
+	 * Only treat `on*` as an event handler when the DOM exposes a matching handler property,
+	 * so ordinary attributes that happen to start with "on" (once, only, online) are left alone.
+	 */
+	#isEventAttribute(element: HTMLElement, attributeName: string): boolean {
+		if (!attributeName.startsWith("on") || attributeName.length <= 2) return false;
+
+		return attributeName in element || (this.#isBrowser && attributeName in window);
 	}
 
 	#attachListener(element: HTMLElement, eventName: string, methodName: string) {
@@ -310,29 +384,52 @@ export class SprinculCore {
 		this.#domListeners.add({ element, type: eventName, listener });
 	}
 
-	#trackBinding(prop: string, element: HTMLElement, callback: string) {
+	/** Returns true if this element/callback pair was already tracked. */
+	#trackBinding(prop: string, element: HTMLElement, callback: string, viaWire: boolean): boolean {
+		let elementBindings = this.#bindingsByElement.get(element);
+		if (!elementBindings) {
+			elementBindings = new Set();
+			this.#bindingsByElement.set(element, elementBindings);
+		}
+
+		for (const existing of elementBindings) {
+			if (existing.prop === prop && existing.callback === callback) return true;
+		}
+
 		if (!this.#bindings.has(prop)) {
 			this.#bindings.set(prop, new Set());
 		}
 
-		const bindings = this.#bindings.get(prop)!;
+		const record = { prop, element, callback, viaWire };
+		this.#bindings.get(prop)!.add(record);
+		elementBindings.add(record);
 
-		// Guard against double-binding when #processTree walks the same element twice
-		const alreadyBound = Array.from(bindings).some(
-			(binding) => binding.element === element && binding.callback === callback,
-		);
-		if (alreadyBound) return;
-
-		bindings.add({ element, callback });
+		return false;
 	}
 
-	#updateDependentElements(prop: string) {
+	#updateDependentElements(prop: string, updated?: Map<HTMLElement, Set<string>>) {
 		const dependentElements = this.#bindings.get(prop);
 		if (!dependentElements) return;
 
 		dependentElements.forEach((binding) => {
+			if (updated && !this.#markUpdated(updated, binding)) return;
+
 			this.#updateElement(binding);
 		});
+	}
+
+	/** Records this frame's work for a binding; false if the same callback already ran on it. */
+	#markUpdated(updated: Map<HTMLElement, Set<string>>, binding: BindingRecord): boolean {
+		let callbacks = updated.get(binding.element);
+		if (!callbacks) {
+			callbacks = new Set();
+			updated.set(binding.element, callbacks);
+		}
+
+		if (callbacks.has(binding.callback)) return false;
+
+		callbacks.add(binding.callback);
+		return true;
 	}
 
 	#updateElement(binding: { element: HTMLElement; callback: string }) {

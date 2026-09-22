@@ -162,4 +162,137 @@ describe("Sprincul - State Management", () => {
 		// Should only call callback once despite three state changes
 		expect(callCount).toBe(initialCallCount + 1);
 	});
+
+	test("a binding callback runs once per frame, not once per triggering property", async () => {
+		let renders = 0;
+
+		class PricingModel extends SprinculModel {
+			beforeInit() {
+				this.state.price = 1;
+				this.addComputedProp("total", () => this.state.price * 2, ["price"]);
+			}
+			showPricing(el: HTMLElement) {
+				renders++;
+			}
+		}
+
+		const el = document.createElement("div");
+		// bound to both the source property and a computed derived from it
+		el.innerHTML = html`<span data-bind-price="showPricing" data-bind-total="showPricing"></span>`;
+		container.appendChild(el);
+
+		const instance = Sprincul.mount(el, PricingModel) as InstanceType<typeof PricingModel>;
+		await waitForDomUpdate();
+
+		renders = 0;
+		instance.state.price = 7;
+		await waitForDomUpdate();
+
+		expect(renders).toBe(1);
+	});
+
+	test("the initial binding callback is not repeated by the frame beforeInit's writes scheduled", async () => {
+		let renders = 0;
+
+		class SeededModel extends SprinculModel {
+			beforeInit() {
+				this.state.count = 1;
+			}
+			showCount(el: HTMLElement) {
+				renders++;
+				el.textContent = String(this.state.count);
+			}
+		}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<span data-bind-count="showCount"></span>`;
+		container.appendChild(el);
+
+		Sprincul.mount(el, SeededModel);
+		await waitForDomUpdate();
+
+		expect(renders).toBe(1);
+		expect(el.querySelector("span")!.textContent).toBe("1");
+	});
+
+	test("an update scheduled by an initial callback still runs", async () => {
+		class CrossWritingModel extends SprinculModel {
+			beforeInit() {
+				this.state.first = "a1";
+				this.state.second = "b1";
+			}
+			showFirst(el: HTMLElement) {
+				el.textContent = String(this.state.first);
+			}
+			// Runs after showFirst, and writes back to the property showFirst renders
+			showSecond(el: HTMLElement) {
+				if (this.state.first === "a1") this.state.first = "a2";
+			}
+		}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<span data-bind-first="showFirst"></span><span data-bind-second="showSecond"></span>`;
+		container.appendChild(el);
+
+		Sprincul.mount(el, CrossWritingModel);
+		await waitForDomUpdate();
+
+		expect(el.querySelector("span")!.textContent).toBe("a2");
+	});
+
+	test("deduping one frame does not suppress the updates that follow it", async () => {
+		const seen: string[] = [];
+
+		class SequenceModel extends SprinculModel {
+			beforeInit() {
+				this.state.label = "init";
+			}
+			showLabel(el: HTMLElement) {
+				seen.push(String(this.state.label));
+			}
+		}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<span data-bind-label="showLabel"></span>`;
+		container.appendChild(el);
+
+		const instance = Sprincul.mount(el, SequenceModel) as InstanceType<typeof SequenceModel>;
+		await waitForDomUpdate();
+
+		instance.state.label = "second";
+		await waitForDomUpdate();
+		instance.state.label = "third";
+		await waitForDomUpdate();
+
+		expect(seen).toEqual(["init", "second", "third"]);
+	});
+
+	test("distinct callbacks on one property all run in the same frame", async () => {
+		const hits: string[] = [];
+
+		class MultiModel extends SprinculModel {
+			beforeInit() {
+				this.state.value = 0;
+			}
+			first() {
+				hits.push("first");
+			}
+			second() {
+				hits.push("second");
+			}
+		}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<span data-bind-value="first"></span><span data-bind-value="second"></span>`;
+		container.appendChild(el);
+
+		const instance = Sprincul.mount(el, MultiModel) as InstanceType<typeof MultiModel>;
+		await waitForDomUpdate();
+
+		hits.length = 0;
+		instance.state.value = 5;
+		await waitForDomUpdate();
+
+		expect(hits.sort()).toEqual(["first", "second"]);
+	});
 });

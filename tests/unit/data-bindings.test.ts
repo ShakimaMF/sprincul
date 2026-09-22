@@ -88,6 +88,75 @@ describe("Sprincul - Data Bindings", () => {
 
 		// Note: keyboard/input synthetic events in happy-dom are unreliable; click is covered above.
 
+		test("leaves non-event attributes that start with \"on\" alone", async () => {
+			container.innerHTML = html`
+				<div data-model="FlagModel">
+					<button onclick="handleClick" once one only online data-keep="yes">Click Me</button>
+				</div>
+			`;
+
+			let clicks = 0;
+
+			class FlagModel extends SprinculModel {
+				handleClick() {
+					clicks++;
+				}
+			}
+
+			Sprincul.register("FlagModel", FlagModel);
+			Sprincul.init();
+
+			const button = container.querySelector("button") as HTMLButtonElement;
+
+			// The real handler is consumed from the DOM and actually bound
+			expect(button.hasAttribute("onclick")).toBe(false);
+			button.click();
+			await waitForDomUpdate();
+			expect(clicks).toBe(1);
+
+			// Attributes that merely start with "on" are not event handlers and must survive
+			expect(button.getAttributeNames().sort()).toEqual(["data-keep", "once", "one", "online", "only"].sort());
+		});
+
+		test("still strips a genuine inline handler like onerror so the browser cannot run it", () => {
+			container.innerHTML = html`
+				<div data-model="ImageModel">
+					<img onerror="handleError" />
+				</div>
+			`;
+
+			class ImageModel extends SprinculModel {
+				handleError() {}
+			}
+
+			Sprincul.register("ImageModel", ImageModel);
+			Sprincul.init();
+
+			expect(container.querySelector("img")!.hasAttribute("onerror")).toBe(false);
+		});
+
+		test("does not warn about non-event attributes in devMode", () => {
+			container.innerHTML = html`
+				<div data-model="QuietModel">
+					<div once one only></div>
+				</div>
+			`;
+
+			class QuietModel extends SprinculModel {}
+			Sprincul.register("QuietModel", QuietModel);
+
+			const warnings: string[] = [];
+			const originalWarn = console.warn;
+			console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+			try {
+				Sprincul.init({ devMode: true });
+			} finally {
+				console.warn = originalWarn;
+			}
+
+			expect(warnings).toHaveLength(0);
+		});
+
 		test("comprehensive integration: event changes state, multiple elements react", async () => {
 			container.innerHTML = html`
 				<div data-model="CounterModel">
