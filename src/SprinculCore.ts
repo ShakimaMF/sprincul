@@ -315,7 +315,7 @@ export class SprinculCore {
 			}
 
 			// Handle on* event attributes (onclick, onkeydown, etc.)
-			if (attr.name.startsWith("on") && attr.name.length > 2) {
+			if (this.#isEventAttribute(element, attr.name)) {
 				const eventName = attr.name.substring(2); // Remove 'on' prefix
 				const methodName = attr.value;
 				element.removeAttribute(attr.name);
@@ -329,6 +329,16 @@ export class SprinculCore {
 				this.#attachListener(element, eventName, methodName);
 			}
 		});
+	}
+
+	/**
+	 * Only treat `on*` as an event handler when the DOM exposes a matching handler property,
+	 * so ordinary attributes that happen to start with "on" (once, only, online) are left alone.
+	 */
+	#isEventAttribute(element: HTMLElement, attributeName: string): boolean {
+		if (!attributeName.startsWith("on") || attributeName.length <= 2) return false;
+
+		return attributeName in element || (this.#isBrowser && attributeName in window);
 	}
 
 	#attachListener(element: HTMLElement, eventName: string, methodName: string) {
