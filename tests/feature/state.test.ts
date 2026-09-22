@@ -215,6 +215,31 @@ describe("Sprincul - State Management", () => {
 		expect(el.querySelector("span")!.textContent).toBe("1");
 	});
 
+	test("an update scheduled by an initial callback still runs", async () => {
+		class CrossWritingModel extends SprinculModel {
+			beforeInit() {
+				this.state.first = "a1";
+				this.state.second = "b1";
+			}
+			showFirst(el: HTMLElement) {
+				el.textContent = String(this.state.first);
+			}
+			// Runs after showFirst, and writes back to the property showFirst renders
+			showSecond(el: HTMLElement) {
+				if (this.state.first === "a1") this.state.first = "a2";
+			}
+		}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<span data-bind-first="showFirst"></span><span data-bind-second="showSecond"></span>`;
+		container.appendChild(el);
+
+		Sprincul.mount(el, CrossWritingModel);
+		await waitForDomUpdate();
+
+		expect(el.querySelector("span")!.textContent).toBe("a2");
+	});
+
 	test("deduping one frame does not suppress the updates that follow it", async () => {
 		const seen: string[] = [];
 

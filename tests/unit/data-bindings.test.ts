@@ -95,10 +95,11 @@ describe("Sprincul - Data Bindings", () => {
 				</div>
 			`;
 
+			let clicks = 0;
+
 			class FlagModel extends SprinculModel {
-				clicks = 0;
 				handleClick() {
-					this.clicks++;
+					clicks++;
 				}
 			}
 
@@ -107,10 +108,11 @@ describe("Sprincul - Data Bindings", () => {
 
 			const button = container.querySelector("button") as HTMLButtonElement;
 
-			// The real handler is consumed and bound
+			// The real handler is consumed from the DOM and actually bound
 			expect(button.hasAttribute("onclick")).toBe(false);
 			button.click();
 			await waitForDomUpdate();
+			expect(clicks).toBe(1);
 
 			// Attributes that merely start with "on" are not event handlers and must survive
 			expect(button.getAttributeNames().sort()).toEqual(["data-keep", "once", "one", "online", "only"].sort());

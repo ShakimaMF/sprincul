@@ -155,14 +155,11 @@ export class SprinculCore {
 		const queuedCallbacks = this.#pendingInitialCallbacks;
 		this.#pendingInitialCallbacks = [];
 
-		queuedCallbacks.forEach((binding) => this.#updateElement(binding));
+		// Drop what beforeInit's own writes scheduled before rendering, not after: these callbacks
+		// render current state, and one of them may schedule an update of its own that must survive
+		queuedCallbacks.forEach((binding) => this.#pendingUpdates.delete(binding.prop));
 
-		// These just rendered current state, so a frame that beforeInit's own writes scheduled
-		// would re-run the very same callbacks for no reason
-		if (this.#pendingUpdates.size > 0) {
-			const renderedProps = new Set(queuedCallbacks.map((binding) => binding.prop));
-			renderedProps.forEach((prop) => this.#pendingUpdates.delete(prop));
-		}
+		queuedCallbacks.forEach((binding) => this.#updateElement(binding));
 
 		const queuedListeners = this.#pendingListeners;
 		this.#pendingListeners = [];
