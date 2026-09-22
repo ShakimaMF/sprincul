@@ -405,13 +405,32 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		);
 	});
 
-	test("wire() scales linearly with binding count, not quadratically", () => {
+	test("wire() dedupe cost stays linear in the number of bindings", () => {
 		class TableModel extends SprinculModel {
 			beforeInit() {
 				this.state.qty = 0;
 			}
 			showQty(el: HTMLElement) {}
 		}
+
+		// Count how many records the dedupe scan iterates. A per-property scan walks every binding
+		// sharing that property, so wiring N of them costs ~N^2 steps; an element-keyed index only
+		// walks the bindings already on that one element.
+		let steps = 0;
+		const originalIterator = Set.prototype[Symbol.iterator];
+		Set.prototype[Symbol.iterator] = function <T>(this: Set<T>) {
+			const inner = originalIterator.call(this) as IterableIterator<T>;
+			return {
+				[Symbol.iterator]() {
+					return this;
+				},
+				next() {
+					const result = inner.next();
+					if (!result.done) steps++;
+					return result;
+				},
+			} as IterableIterator<T>;
+		};
 
 		const wireRows = (rows: number) => {
 			const el = document.createElement("div");
@@ -434,22 +453,24 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 				body.appendChild(tr);
 			}
 
-			const start = performance.now();
+			steps = 0;
 			instance.wire(body);
-			const elapsed = performance.now() - start;
+			const walked = steps;
 
 			Sprincul.unmount(el);
 			el.remove();
-			return elapsed;
+			return walked;
 		};
 
-		wireRows(200); // warm up, so JIT effects don't land on the measured runs
-		const small = wireRows(250);
-		const large = wireRows(1000);
+		try {
+			const small = wireRows(100);
+			const large = wireRows(400);
 
-		// 4x the bindings should cost ~4x the time; a quadratic dedupe costs ~16x.
-		// Headroom is generous so only a real complexity regression trips this.
-		expect(large).toBeLessThan(Math.max(small, 1) * 10);
+			// 4x the bindings should cost ~4x the steps; a quadratic scan costs ~16x.
+			expect(large).toBeLessThan(Math.max(small, 1) * 8);
+		} finally {
+			Set.prototype[Symbol.iterator] = originalIterator;
+		}
 	});
 
 	test("wire() throws if called before the model's core is available", () => {
