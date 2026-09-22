@@ -232,7 +232,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		list.appendChild(li);
 		instance.wire(li);
 
-		instance.unwire(li);
+		instance.unwire(li, { includeSelf: true });
 		li.remove();
 
 		li.click();
@@ -264,7 +264,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		el.appendChild(rowV1);
 		instance.wire(rowV1);
 
-		instance.unwire(rowV1);
+		instance.unwire(rowV1, { includeSelf: true });
 		rowV1.remove();
 
 		const rowV2 = document.createElement("span");
@@ -307,13 +307,84 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		el.appendChild(wrapper);
 		instance.wire(wrapper);
 
-		instance.unwire(wrapper);
+		instance.unwire(wrapper, { includeSelf: true });
 		wrapper.remove();
 
 		child.click();
 		await waitForDomUpdate();
 
 		expect(instance.state.count).toBe(0);
+	});
+
+	test("a bound container can unwire and re-wire itself from inside its own callback", async () => {
+		let renders = 0;
+
+		class RepeaterModel extends SprinculModel {
+			beforeInit() {
+				this.state.rows = "first";
+			}
+			renderRows(listEl: HTMLElement) {
+				renders++;
+				// The container handed to the callback is itself bound, and gets rebuilt in place
+				this.unwire(listEl);
+				listEl.innerHTML = "";
+
+				const row = document.createElement("li");
+				row.setAttribute("onclick", "pickRow");
+				row.textContent = String(this.state.rows);
+				listEl.appendChild(row);
+
+				this.wire(listEl);
+			}
+			pickRow() {}
+		}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<ul data-bind-rows="renderRows"></ul>`;
+		container.appendChild(el);
+
+		const instance = Sprincul.mount(el, RepeaterModel) as InstanceType<typeof RepeaterModel>;
+		await waitForDomUpdate();
+		expect(renders).toBe(1);
+
+		// The container's own binding survived its own unwire(), so it still re-renders
+		instance.state.rows = "second";
+		await waitForDomUpdate();
+		expect(renders).toBe(2);
+		expect(el.querySelector("li")!.textContent).toBe("second");
+	});
+
+	test("unwire() leaves the passed element's own binding alone unless includeSelf is set", async () => {
+		let renders = 0;
+
+		class SelfModel extends SprinculModel {
+			beforeInit() {
+				this.state.value = 0;
+			}
+			showValue() {
+				renders++;
+			}
+		}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<span data-bind-value="showValue"></span>`;
+		container.appendChild(el);
+
+		const instance = Sprincul.mount(el, SelfModel) as InstanceType<typeof SelfModel>;
+		const span = el.querySelector("span") as HTMLElement;
+		await waitForDomUpdate();
+
+		instance.unwire(span);
+		renders = 0;
+		instance.state.value = 1;
+		await waitForDomUpdate();
+		expect(renders).toBe(1);
+
+		instance.unwire(span, { includeSelf: true });
+		renders = 0;
+		instance.state.value = 2;
+		await waitForDomUpdate();
+		expect(renders).toBe(0);
 	});
 
 	test("unwire() throws if called before the model's core is available", () => {

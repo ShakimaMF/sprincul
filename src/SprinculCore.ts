@@ -116,13 +116,19 @@ export class SprinculCore {
 	/**
 	 * Reverses wire() for `element` and its descendants. Call before discarding a wired subtree.
 	 */
-	unwireElement(element: HTMLElement) {
-		const isInSubtree = (candidate: HTMLElement) => candidate === element || element.contains(candidate);
+	unwireElement(element: HTMLElement, options?: { includeSelf?: boolean }) {
+		const includeSelf = options?.includeSelf ?? false;
+
+		// Default is descendants-only: releasing the passed element would take its own
+		// data-bind-* with it, silently stopping a callback that unwires the container it was handed
+		// Note contains() is true for the node itself, so descendants-only must exclude it explicitly
+		const isInScope = (candidate: HTMLElement) =>
+			candidate === element ? includeSelf : element.contains(candidate);
 
 		// Walk the tracked elements rather than the DOM, so descendants already detached from
 		// this subtree are still released
 		Array.from(this.#bindingsByElement.keys()).forEach((node) => {
-			if (!isInSubtree(node)) return;
+			if (!isInScope(node)) return;
 
 			this.#bindingsByElement.get(node)!.forEach((record) => {
 				const bindings = this.#bindings.get(record.prop);
@@ -135,15 +141,15 @@ export class SprinculCore {
 		});
 
 		this.#domListeners.forEach((record) => {
-			if (!isInSubtree(record.element)) return;
+			if (!isInScope(record.element)) return;
 			record.element.removeEventListener(record.type, record.listener, record.options);
 			this.#domListeners.delete(record);
 		});
 
 		this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter(
-			(binding) => !isInSubtree(binding.element),
+			(binding) => !isInScope(binding.element),
 		);
-		this.#pendingListeners = this.#pendingListeners.filter((listener) => !isInSubtree(listener.element));
+		this.#pendingListeners = this.#pendingListeners.filter((listener) => !isInScope(listener.element));
 	}
 
 	/**

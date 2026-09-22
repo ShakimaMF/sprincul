@@ -74,14 +74,19 @@ export default class SprinculModel {
 	}
 
 	/**
-	 * Release the data-bind-* bindings and on* listeners for an element and its descendants.
+	 * Release the data-bind-* bindings and on* listeners within an element.
 	 * Call this before discarding content a model rebuilds on every render.
 	 *
-	 * @param {HTMLElement} element - The element (and its descendants) to release. Call this before detaching it.
+	 * Only the element's descendants are released, so a binding callback can safely unwire the
+	 * container it was handed. Pass `{ includeSelf: true }` to release `element` itself too, when
+	 * the element is also being discarded.
+	 *
+	 * @param {HTMLElement} element - The element whose content to release. Call this before detaching it.
+	 * @param {{ includeSelf?: boolean }} [options] - Set `includeSelf` to also release `element`'s own bindings and listeners.
 	 * @return {void} Does not return a value.
 	 * @throws {Error} If the method is called before the core is available.
 	 */
-	unwire(element: HTMLElement): void {
+	unwire(element: HTMLElement, options?: { includeSelf?: boolean }): void {
 		const core = this.#core || getCore(this);
 		if (!core) {
 			throw new Error(
@@ -89,7 +94,7 @@ export default class SprinculModel {
 			);
 		}
 
-		core.unwireElement(element);
+		core.unwireElement(element, options);
 	}
 
 	/**
