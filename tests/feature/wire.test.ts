@@ -232,7 +232,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		list.appendChild(li);
 		instance.wire(li);
 
-		instance.unwire(li, { includeSelf: true });
+		instance.unwire(li);
 		li.remove();
 
 		li.click();
@@ -264,7 +264,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		el.appendChild(rowV1);
 		instance.wire(rowV1);
 
-		instance.unwire(rowV1, { includeSelf: true });
+		instance.unwire(rowV1);
 		rowV1.remove();
 
 		const rowV2 = document.createElement("span");
@@ -307,7 +307,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		el.appendChild(wrapper);
 		instance.wire(wrapper);
 
-		instance.unwire(wrapper, { includeSelf: true });
+		instance.unwire(wrapper);
 		wrapper.remove();
 
 		child.click();
@@ -354,37 +354,48 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		expect(el.querySelector("li")!.textContent).toBe("second");
 	});
 
-	test("unwire() leaves the passed element's own binding alone unless includeSelf is set", async () => {
-		let renders = 0;
+	test("unwire() releases what wire() registered but leaves server-rendered bindings alone", async () => {
+		let scanned = 0;
+		let wired = 0;
 
-		class SelfModel extends SprinculModel {
+		class MixedModel extends SprinculModel {
 			beforeInit() {
 				this.state.value = 0;
 			}
-			showValue() {
-				renders++;
+			showScanned() {
+				scanned++;
+			}
+			showWired() {
+				wired++;
 			}
 		}
 
 		const el = document.createElement("div");
-		el.innerHTML = html`<span data-bind-value="showValue"></span>`;
+		// present at mount, so this binding comes from the initial scan
+		el.innerHTML = html`<span data-bind-value="showScanned"></span>`;
 		container.appendChild(el);
 
-		const instance = Sprincul.mount(el, SelfModel) as InstanceType<typeof SelfModel>;
-		const span = el.querySelector("span") as HTMLElement;
+		const instance = Sprincul.mount(el, MixedModel) as InstanceType<typeof MixedModel>;
+		const scannedEl = el.querySelector("span") as HTMLElement;
+
+		// added afterwards, so this binding comes from wire()
+		const wiredEl = document.createElement("span");
+		wiredEl.setAttribute("data-bind-value", "showWired");
+		el.appendChild(wiredEl);
+		instance.wire(wiredEl);
 		await waitForDomUpdate();
 
-		instance.unwire(span);
-		renders = 0;
+		instance.unwire(el);
+
+		scanned = 0;
+		wired = 0;
 		instance.state.value = 1;
 		await waitForDomUpdate();
-		expect(renders).toBe(1);
 
-		instance.unwire(span, { includeSelf: true });
-		renders = 0;
-		instance.state.value = 2;
-		await waitForDomUpdate();
-		expect(renders).toBe(0);
+		expect(scanned).toBe(1);
+		expect(wired).toBe(0);
+		// the scan-registered element is untouched and still in the DOM
+		expect(scannedEl.isConnected).toBe(true);
 	});
 
 	test("unwire() throws if called before the model's core is available", () => {

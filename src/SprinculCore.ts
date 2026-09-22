@@ -2,7 +2,10 @@ import { computed, type ReadableAtom, type MapStore } from "nanostores";
 import type SprinculModel from "./SprinculModel";
 import type { BoundDefaults, DomListenerRecord } from "./types";
 
-type BindingRecord = { prop: string; element: HTMLElement; callback: string };
+type ProcessOptions = { defaults?: BoundDefaults; deferCallbacks: boolean; viaWire?: boolean };
+
+/** `viaWire` marks bindings registered by wire() rather than the initial scan, so unwire() releases only what wiring added. */
+type BindingRecord = { prop: string; element: HTMLElement; callback: string; viaWire: boolean };
 
 /**
  * @class SprinculCore
@@ -110,34 +113,36 @@ export class SprinculCore {
 	}
 
 	processAddedElement(element: HTMLElement) {
-		this.#processTree(element, { deferCallbacks: false });
+		this.#processTree(element, { deferCallbacks: false, viaWire: true });
 	}
 
 	/**
 	 * Reverses wire() for `element` and its descendants. Call before discarding a wired subtree.
 	 */
-	unwireElement(element: HTMLElement, options?: { includeSelf?: boolean }) {
-		const includeSelf = options?.includeSelf ?? false;
-
-		// Default is descendants-only: releasing the passed element would take its own
-		// data-bind-* with it, silently stopping a callback that unwires the container it was handed
-		// Note contains() is true for the node itself, so descendants-only must exclude it explicitly
-		const isInScope = (candidate: HTMLElement) =>
-			candidate === element ? includeSelf : element.contains(candidate);
+	unwireElement(element: HTMLElement) {
+		// contains() is true for the node itself, so this covers the element and its descendants
+		const isInScope = (candidate: HTMLElement) => element.contains(candidate);
 
 		// Walk the tracked elements rather than the DOM, so descendants already detached from
 		// this subtree are still released
 		Array.from(this.#bindingsByElement.keys()).forEach((node) => {
 			if (!isInScope(node)) return;
 
-			this.#bindingsByElement.get(node)!.forEach((record) => {
-				const bindings = this.#bindings.get(record.prop);
-				if (!bindings) return;
+			const elementBindings = this.#bindingsByElement.get(node)!;
+			elementBindings.forEach((record) => {
+				// Bindings from the initial scan belong to the model's own markup: releasing them
+				// would silently stop a callback that unwires the container it was handed
+				if (!record.viaWire) return;
 
-				bindings.delete(record);
-				if (bindings.size === 0) this.#bindings.delete(record.prop);
+				const bindings = this.#bindings.get(record.prop);
+				if (bindings) {
+					bindings.delete(record);
+					if (bindings.size === 0) this.#bindings.delete(record.prop);
+				}
+				elementBindings.delete(record);
 			});
-			this.#bindingsByElement.delete(node);
+
+			if (elementBindings.size === 0) this.#bindingsByElement.delete(node);
 		});
 
 		this.#domListeners.forEach((record) => {
@@ -174,7 +179,7 @@ export class SprinculCore {
 		);
 	}
 
-	#processTree(container: HTMLElement, options: { defaults?: BoundDefaults; deferCallbacks: boolean }) {
+	#processTree(container: HTMLElement, options: ProcessOptions) {
 		const isNestedModelRoot = container.hasAttribute("data-model") && container !== this.instance.$el;
 		const closestModelElement = container.closest("[data-model]");
 		const withinThisModel = container === this.instance.$el || closestModelElement === this.instance.$el;
@@ -277,14 +282,14 @@ export class SprinculCore {
 	}
 
 	// Process all data-bind-* attributes and on* event handlers for an element
-	#processElementBindings(element: HTMLElement, options: { defaults?: BoundDefaults; deferCallbacks: boolean }) {
+	#processElementBindings(element: HTMLElement, options: ProcessOptions) {
 		Array.from(element.attributes).forEach((attr) => {
 			// Handle data-bind-* attributes for reactive property bindings (e.g. data-bind-<prop>="callbackFn")
 			if (attr.name.startsWith("data-bind-")) {
 				const propertyName = attr.name.substring("data-bind-".length); // The state property to watch
 				const callbackName = attr.value; // The callback to call when it changes
 
-				const alreadyBound = this.#trackBinding(propertyName, element, callbackName);
+				const alreadyBound = this.#trackBinding(propertyName, element, callbackName, options.viaWire === true);
 
 				// Re-invoking the callback here lets a callback that re-wires its own container recurse forever
 				if (alreadyBound) return;
@@ -315,7 +320,12 @@ export class SprinculCore {
 				}
 
 				if (options.deferCallbacks) {
-					this.#pendingInitialCallbacks.push({ prop: propertyName, element, callback: callbackName });
+					this.#pendingInitialCallbacks.push({
+						prop: propertyName,
+						element,
+						callback: callbackName,
+						viaWire: options.viaWire === true,
+					});
 					return;
 				}
 
@@ -375,7 +385,7 @@ export class SprinculCore {
 	}
 
 	/** Returns true if this element/callback pair was already tracked. */
-	#trackBinding(prop: string, element: HTMLElement, callback: string): boolean {
+	#trackBinding(prop: string, element: HTMLElement, callback: string, viaWire: boolean): boolean {
 		let elementBindings = this.#bindingsByElement.get(element);
 		if (!elementBindings) {
 			elementBindings = new Set();
@@ -390,7 +400,7 @@ export class SprinculCore {
 			this.#bindings.set(prop, new Set());
 		}
 
-		const record = { prop, element, callback };
+		const record = { prop, element, callback, viaWire };
 		this.#bindings.get(prop)!.add(record);
 		elementBindings.add(record);
 
