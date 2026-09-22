@@ -3,6 +3,18 @@ import { expect, test, describe, spyOn } from "bun:test";
 import { html, waitForDomUpdate } from "../helpers.ts";
 
 describe("Sprincul - Manual Mount API", () => {
+	const captureWarnings = (run: () => void): string[] => {
+		const warnings: string[] = [];
+		const originalWarn = console.warn;
+		console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+		try {
+			run();
+		} finally {
+			console.warn = originalWarn;
+		}
+		return warnings;
+	};
+
 	test("mount() wires up a reactive model with state, bindings, and computed properties", async () => {
 		const el = document.createElement("div");
 		el.innerHTML = html`
@@ -244,5 +256,65 @@ describe("Sprincul - Manual Mount API", () => {
 		container.appendChild(el);
 
 		expect(() => Sprincul.mount(el, SelfDestroyModel)).toThrow();
+	});
+
+	test("a model whose constructor throws leaves the element mountable", () => {
+		class ThrowingModel extends SprinculModel {
+			constructor(element: HTMLElement) {
+				super(element);
+				throw new Error("constructor failed");
+			}
+		}
+		class WorkingModel extends SprinculModel {}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+
+		expect(() => Sprincul.mount(el, ThrowingModel)).toThrow("constructor failed");
+
+		// A failed mount must not claim the element, or it could never be mounted again
+		expect(el.dataset.model).toBeUndefined();
+		expect(() => Sprincul.mount(el, WorkingModel)).not.toThrow();
+	});
+
+	test("a failed mount restores a data-model attribute it overwrote", () => {
+		class ThrowingModel extends SprinculModel {
+			constructor(element: HTMLElement) {
+				super(element);
+				throw new Error("constructor failed");
+			}
+		}
+
+		const el = document.createElement("div");
+		el.setAttribute("data-model", "Preexisting");
+		container.appendChild(el);
+
+		expect(() => Sprincul.mount(el, ThrowingModel)).toThrow();
+		expect(el.dataset.model).toBe("Preexisting");
+	});
+
+	test("unmount() with the wrong model name warns instead of silently doing nothing", () => {
+		class RealModel extends SprinculModel {}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+		Sprincul.mount(el, RealModel);
+
+		const warnings = captureWarnings(() => Sprincul.unmount(el, "UnknownModel"));
+
+		expect(warnings.some((warning) => warning.includes("UnknownModel"))).toBe(true);
+		// The element is still mounted, so it stays unmountable under its real name
+		expect(() => Sprincul.unmount(el)).not.toThrow();
+	});
+
+	test("unmounting an already-unmounted element is quiet", () => {
+		class RealModel extends SprinculModel {}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+		Sprincul.mount(el, RealModel);
+		Sprincul.unmount(el);
+
+		expect(captureWarnings(() => Sprincul.unmount(el))).toHaveLength(0);
 	});
 });

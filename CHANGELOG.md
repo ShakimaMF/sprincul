@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fix a race where destroying and remounting a model on the same element within one synchronous tick could register its bindings twice, causing duplicate callback invocations
+- Fix a model whose constructor or binding setup throws leaving its element permanently unmountable, with `unmount()` unable to recover it
+- Warn when `unmount()`/`destroy()` is given a model name that doesn't match the instance mounted on the element, instead of silently doing nothing
 
 ## [0.2.1] - 2026-05-20
 
