@@ -17,7 +17,7 @@ export class SprinculCore {
 	#unsubscribers = new Set<() => void>();
 	#pendingUpdates = new Set<string>();
 	#updateScheduled: boolean = false;
-	#pendingInitialCallbacks: Array<{ element: HTMLElement; callback: string }> = [];
+	#pendingInitialCallbacks: Array<BindingRecord> = [];
 	#pendingListeners: Array<{ element: HTMLElement; eventName: string; methodName: string }> = [];
 	readonly #isBrowser: boolean;
 
@@ -154,7 +154,15 @@ export class SprinculCore {
 	runQueuedInitialCallbacks() {
 		const queuedCallbacks = this.#pendingInitialCallbacks;
 		this.#pendingInitialCallbacks = [];
+
 		queuedCallbacks.forEach((binding) => this.#updateElement(binding));
+
+		// These just rendered current state, so a frame that beforeInit's own writes scheduled
+		// would re-run the very same callbacks for no reason
+		if (this.#pendingUpdates.size > 0) {
+			const renderedProps = new Set(queuedCallbacks.map((binding) => binding.prop));
+			renderedProps.forEach((prop) => this.#pendingUpdates.delete(prop));
+		}
 
 		const queuedListeners = this.#pendingListeners;
 		this.#pendingListeners = [];
@@ -235,7 +243,10 @@ export class SprinculCore {
 		if (!this.#updateScheduled) {
 			this.#updateScheduled = true;
 			requestAnimationFrame(() => {
-				this.#pendingUpdates.forEach((prop) => this.#updateDependentElements(prop));
+				// One pass per frame: an element bound to both a source prop and a computed derived
+				// from it would otherwise run the same callback once per prop
+				const updated = new Map<HTMLElement, Set<string>>();
+				this.#pendingUpdates.forEach((prop) => this.#updateDependentElements(prop, updated));
 				this.#pendingUpdates.clear();
 				this.#updateScheduled = false;
 			});
@@ -301,7 +312,7 @@ export class SprinculCore {
 				}
 
 				if (options.deferCallbacks) {
-					this.#pendingInitialCallbacks.push({ element, callback: callbackName });
+					this.#pendingInitialCallbacks.push({ prop: propertyName, element, callback: callbackName });
 					return;
 				}
 
@@ -383,13 +394,29 @@ export class SprinculCore {
 		return false;
 	}
 
-	#updateDependentElements(prop: string) {
+	#updateDependentElements(prop: string, updated?: Map<HTMLElement, Set<string>>) {
 		const dependentElements = this.#bindings.get(prop);
 		if (!dependentElements) return;
 
 		dependentElements.forEach((binding) => {
+			if (updated && !this.#markUpdated(updated, binding)) return;
+
 			this.#updateElement(binding);
 		});
+	}
+
+	/** Records this frame's work for a binding; false if the same callback already ran on it. */
+	#markUpdated(updated: Map<HTMLElement, Set<string>>, binding: BindingRecord): boolean {
+		let callbacks = updated.get(binding.element);
+		if (!callbacks) {
+			callbacks = new Set();
+			updated.set(binding.element, callbacks);
+		}
+
+		if (callbacks.has(binding.callback)) return false;
+
+		callbacks.add(binding.callback);
+		return true;
 	}
 
 	#updateElement(binding: { element: HTMLElement; callback: string }) {

@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix a model whose constructor or binding setup throws leaving its element permanently unmountable, with `unmount()` unable to recover it
 - Warn when `unmount()`/`destroy()` is given a model name that doesn't match the instance mounted on the element, instead of silently doing nothing
 - Fix any attribute starting with `on` (such as `once`, `one`, `only`) being treated as an event handler and stripped from the DOM; only attributes the DOM exposes as real event handlers are bound now
+- Fix an element bound to both a state property and a computed property derived from it running its callback twice for a single change; each callback now runs at most once per element per frame
 
 ## [0.2.1] - 2026-05-20
 
