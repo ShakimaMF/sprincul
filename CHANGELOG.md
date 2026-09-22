@@ -5,13 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0] - 2026-09-21
+## [Unreleased]
 
 ### Added
 
 - Add `beforeInit(defaults)` for hydrating initial state from server-rendered markup. See [Lifecycle and Hydration](https://github.com/ShakimaMF/sprincul/wiki/Lifecycle-and-Hydration).
 - Add `beforeDestroy()` lifecycle hook for cleaning up anything a model subscribed to or started itself. See [Lifecycle and Hydration](https://github.com/ShakimaMF/sprincul/wiki/Lifecycle-and-Hydration).
 - Add `wire(element)` for binding newly added content within a live model without mounting a new one. See [Wiring Dynamic Content](https://github.com/ShakimaMF/sprincul/wiki/Wiring-Dynamic-Content).
+- Add `unwire(element)` for releasing bindings/listeners on a subtree before discarding it, so components that rebuild part of their own DOM on every render don't leak. See [Wiring Dynamic Content](https://github.com/ShakimaMF/sprincul/wiki/Wiring-Dynamic-Content).
 - Add `options` parameter to `Sprincul.mount()`, with `onReady` and `devMode` (`devMode` was previously `init()`-only). Add a `root` option to `init()`. See [Mounting and Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting).
 - Add `Sprincul.destroyAll()` to tear down every live model instance at once.
 

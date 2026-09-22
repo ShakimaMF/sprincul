@@ -181,6 +181,195 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		expect(instance.state.count).toBe(1);
 	});
 
+	test("re-wiring an already-bound data-bind-* element does not re-invoke its callback or recurse", async () => {
+		class ListModel extends SprinculModel {
+			beforeInit() {
+				this.state.count = 0;
+			}
+			renderCount = 0;
+			showCount(el: HTMLElement) {
+				this.renderCount++;
+				el.textContent = String(this.state.count);
+			}
+		}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+
+		const instance = Sprincul.mount(el, ListModel) as InstanceType<typeof ListModel>;
+
+		const span = document.createElement("span");
+		span.setAttribute("data-bind-count", "showCount");
+		el.appendChild(span);
+
+		instance.wire(span);
+		expect(instance.renderCount).toBe(1);
+
+		// Re-wiring an already-bound element must not re-invoke the callback (it could recurse)
+		instance.wire(span);
+		expect(instance.renderCount).toBe(1);
+	});
+
+	test("unwire() detaches on* listeners so removed content stops receiving events and doesn't leak", async () => {
+		class ListModel extends SprinculModel {
+			beforeInit() {
+				this.state.count = 0;
+			}
+			bump() {
+				this.state.count++;
+			}
+		}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<ul></ul>`;
+		container.appendChild(el);
+
+		const instance = Sprincul.mount(el, ListModel) as InstanceType<typeof ListModel>;
+		const list = el.querySelector("ul")!;
+
+		const li = document.createElement("li");
+		li.setAttribute("onclick", "bump");
+		list.appendChild(li);
+		instance.wire(li);
+
+		instance.unwire(li);
+		li.remove();
+
+		li.click();
+		await waitForDomUpdate();
+
+		expect(instance.state.count).toBe(0);
+	});
+
+	test("unwire() releases data-bind-* callbacks for a subtree, and re-wiring a replacement is unaffected", async () => {
+		class RepeaterModel extends SprinculModel {
+			beforeInit() {
+				this.state.value = "first";
+			}
+			renderCalls: HTMLElement[] = [];
+			showValue(el: HTMLElement) {
+				this.renderCalls.push(el);
+				el.textContent = this.state.value;
+			}
+		}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+
+		const instance = Sprincul.mount(el, RepeaterModel) as InstanceType<typeof RepeaterModel>;
+
+		// The documented repeater pattern: release the old row, discard it, wire the replacement
+		const rowV1 = document.createElement("span");
+		rowV1.setAttribute("data-bind-value", "showValue");
+		el.appendChild(rowV1);
+		instance.wire(rowV1);
+
+		instance.unwire(rowV1);
+		rowV1.remove();
+
+		const rowV2 = document.createElement("span");
+		rowV2.setAttribute("data-bind-value", "showValue");
+		el.appendChild(rowV2);
+		instance.wire(rowV2);
+
+		instance.state.value = "second";
+		await waitForDomUpdate();
+
+		// The released row keeps its last render; only the live replacement updates
+		expect(rowV1.textContent).toBe("first");
+		expect(rowV2.textContent).toBe("second");
+		// rowV1 was rendered once on wire(); rowV2 was rendered on wire() and again on the state change
+		expect(instance.renderCalls).toHaveLength(3);
+		expect(instance.renderCalls[0]).toBe(rowV1);
+		expect(instance.renderCalls[1]).toBe(rowV2);
+		expect(instance.renderCalls[2]).toBe(rowV2);
+	});
+
+	test("unwire() also releases descendants of the released element, not just the element itself", async () => {
+		class ListModel extends SprinculModel {
+			beforeInit() {
+				this.state.count = 0;
+			}
+			bump() {
+				this.state.count++;
+			}
+		}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+
+		const instance = Sprincul.mount(el, ListModel) as InstanceType<typeof ListModel>;
+
+		const wrapper = document.createElement("div");
+		const child = document.createElement("button");
+		child.setAttribute("onclick", "bump");
+		wrapper.appendChild(child);
+		el.appendChild(wrapper);
+		instance.wire(wrapper);
+
+		instance.unwire(wrapper);
+		wrapper.remove();
+
+		child.click();
+		await waitForDomUpdate();
+
+		expect(instance.state.count).toBe(0);
+	});
+
+	test("unwire() throws if called before the model's core is available", () => {
+		const model = new SprinculModel(document.createElement("div"));
+		expect(() => model.unwire(document.createElement("span"))).toThrow(
+			"[Sprincul] unwire() called before core was available. Call it from beforeInit() or later instead.",
+		);
+	});
+
+	test("wire() scales linearly with binding count, not quadratically", () => {
+		class TableModel extends SprinculModel {
+			beforeInit() {
+				this.state.qty = 0;
+			}
+			showQty(el: HTMLElement) {}
+		}
+
+		const wireRows = (rows: number) => {
+			const el = document.createElement("div");
+			el.innerHTML = html`<table>
+				<tbody></tbody>
+			</table>`;
+			container.appendChild(el);
+
+			const instance = Sprincul.mount(el, TableModel) as InstanceType<typeof TableModel>;
+			const body = el.querySelector("tbody")!;
+
+			for (let row = 0; row < rows; row++) {
+				const tr = document.createElement("tr");
+				for (let field = 0; field < 3; field++) {
+					const td = document.createElement("td");
+					// every cell binds the SAME prop: the worst case for a per-prop dedupe scan
+					td.setAttribute("data-bind-qty", "showQty");
+					tr.appendChild(td);
+				}
+				body.appendChild(tr);
+			}
+
+			const start = performance.now();
+			instance.wire(body);
+			const elapsed = performance.now() - start;
+
+			Sprincul.unmount(el);
+			el.remove();
+			return elapsed;
+		};
+
+		wireRows(200); // warm up, so JIT effects don't land on the measured runs
+		const small = wireRows(250);
+		const large = wireRows(1000);
+
+		// 4x the bindings should cost ~4x the time; a quadratic dedupe costs ~16x.
+		// Headroom is generous so only a real complexity regression trips this.
+		expect(large).toBeLessThan(Math.max(small, 1) * 10);
+	});
+
 	test("wire() throws if called before the model's core is available", () => {
 		const model = new SprinculModel(document.createElement("div"));
 		expect(() => model.wire(document.createElement("span"))).toThrow(

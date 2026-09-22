@@ -2,12 +2,16 @@ import { computed, type ReadableAtom, type MapStore } from "nanostores";
 import type SprinculModel from "./SprinculModel";
 import type { BoundDefaults, DomListenerRecord } from "./types";
 
+type BindingRecord = { prop: string; element: HTMLElement; callback: string };
+
 /**
  * @class SprinculCore
  * @description Framework base class. Handles all binding, computed properties, and event-listener wiring for a single model instance.
  */
 export class SprinculCore {
-	#bindings = new Map<string, Set<{ element: HTMLElement; callback: string }>>();
+	#bindings = new Map<string, Set<BindingRecord>>();
+	/** element -> its own binding records, so dedupe and subtree release don't scan every binding */
+	#bindingsByElement = new Map<HTMLElement, Set<BindingRecord>>();
 	#computed = new Map<string, ReadableAtom>();
 	#domListeners = new Set<DomListenerRecord>();
 	#unsubscribers = new Set<() => void>();
@@ -107,6 +111,39 @@ export class SprinculCore {
 
 	processAddedElement(element: HTMLElement) {
 		this.#processTree(element, { deferCallbacks: false });
+	}
+
+	/**
+	 * Reverses wire() for `element` and its descendants. Call before discarding a wired subtree.
+	 */
+	unwireElement(element: HTMLElement) {
+		const isInSubtree = (candidate: HTMLElement) => candidate === element || element.contains(candidate);
+
+		// Walk the tracked elements rather than the DOM, so descendants already detached from
+		// this subtree are still released
+		Array.from(this.#bindingsByElement.keys()).forEach((node) => {
+			if (!isInSubtree(node)) return;
+
+			this.#bindingsByElement.get(node)!.forEach((record) => {
+				const bindings = this.#bindings.get(record.prop);
+				if (!bindings) return;
+
+				bindings.delete(record);
+				if (bindings.size === 0) this.#bindings.delete(record.prop);
+			});
+			this.#bindingsByElement.delete(node);
+		});
+
+		this.#domListeners.forEach((record) => {
+			if (!isInSubtree(record.element)) return;
+			record.element.removeEventListener(record.type, record.listener, record.options);
+			this.#domListeners.delete(record);
+		});
+
+		this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter(
+			(binding) => !isInSubtree(binding.element),
+		);
+		this.#pendingListeners = this.#pendingListeners.filter((listener) => !isInSubtree(listener.element));
 	}
 
 	/**
@@ -216,6 +253,7 @@ export class SprinculCore {
 		});
 		this.#domListeners.clear();
 		this.#bindings.clear();
+		this.#bindingsByElement.clear();
 		this.#computed.clear();
 		this.#pendingUpdates.clear();
 
@@ -232,8 +270,10 @@ export class SprinculCore {
 				const propertyName = attr.name.substring("data-bind-".length); // The state property to watch
 				const callbackName = attr.value; // The callback to call when it changes
 
-				// Track this binding: when propertyName changes, update this element
-				this.#trackBinding(propertyName, element, callbackName);
+				const alreadyBound = this.#trackBinding(propertyName, element, callbackName);
+
+				// Re-invoking the callback here lets a callback that re-wires its own container recurse forever
+				if (alreadyBound) return;
 
 				// Capture server-rendered content before any callback touches it (first element wins)
 				if (options.defaults && !Object.prototype.hasOwnProperty.call(options.defaults, propertyName)) {
@@ -310,20 +350,27 @@ export class SprinculCore {
 		this.#domListeners.add({ element, type: eventName, listener });
 	}
 
-	#trackBinding(prop: string, element: HTMLElement, callback: string) {
+	/** Returns true if this element/callback pair was already tracked. */
+	#trackBinding(prop: string, element: HTMLElement, callback: string): boolean {
+		let elementBindings = this.#bindingsByElement.get(element);
+		if (!elementBindings) {
+			elementBindings = new Set();
+			this.#bindingsByElement.set(element, elementBindings);
+		}
+
+		for (const existing of elementBindings) {
+			if (existing.prop === prop && existing.callback === callback) return true;
+		}
+
 		if (!this.#bindings.has(prop)) {
 			this.#bindings.set(prop, new Set());
 		}
 
-		const bindings = this.#bindings.get(prop)!;
+		const record = { prop, element, callback };
+		this.#bindings.get(prop)!.add(record);
+		elementBindings.add(record);
 
-		// Guard against double-binding when #processTree walks the same element twice
-		const alreadyBound = Array.from(bindings).some(
-			(binding) => binding.element === element && binding.callback === callback,
-		);
-		if (alreadyBound) return;
-
-		bindings.add({ element, callback });
+		return false;
 	}
 
 	#updateDependentElements(prop: string) {
