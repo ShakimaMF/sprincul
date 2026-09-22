@@ -1,5 +1,5 @@
 <p align="center">
-  <img alt="sprincul" src="https://sinfully-coded.b-cdn.net/sprincul/sprincul.png" />
+  <img alt="sprincul" src="https://github.com/user-attachments/assets/6f5aa8ea-5ba8-4878-8114-65d1bc94c1bf" />
   <br />
   <b>Sprincul:</b> Lightweight, browser-side reactivity for HTML.
   <br />
@@ -34,7 +34,7 @@ This is not meant to compete with either project. The goal is to offer another w
 - The class holds state and the methods that react to it. Bindings (`data-bind-<prop>="<callback>"`) connect state changes to the DOM; event attributes (`onclick`, `oninput`, etc.) connect user interaction to the class.
 - Sprincul reads this markup once and wires it up: state changes flow through your methods to update the DOM, and DOM events flow through your methods to update the state.
 
-<img alt="Sprincul Overview Diagram" src="https://sinfully-coded.b-cdn.net/sprincul/how-it-works-main.png" />
+<img alt="Sprincul Overview Diagram" src="https://github.com/user-attachments/assets/57b448c7-c3ba-4f09-bdca-83b5c64c519e" />
 
 See [Getting Started](https://github.com/ShakimaMF/sprincul/wiki/Getting-Started) in the wiki for the full breakdown, diagrams, installation, and a walkthrough of your first model.
 
