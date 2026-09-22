@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `beforeInit(defaults)` for hydrating initial state from server-rendered markup. See [Lifecycle and Hydration](https://github.com/ShakimaMF/sprincul/wiki/Lifecycle-and-Hydration).
 - Add `beforeDestroy()` lifecycle hook for cleaning up anything a model subscribed to or started itself. See [Lifecycle and Hydration](https://github.com/ShakimaMF/sprincul/wiki/Lifecycle-and-Hydration).
 - Add `wire(element)` for binding newly added content within a live model without mounting a new one. See [Wiring Dynamic Content](https://github.com/ShakimaMF/sprincul/wiki/Wiring-Dynamic-Content).
-- Add `unwire(element)` for releasing bindings/listeners on a subtree before discarding it, so components that rebuild part of their own DOM on every render don't leak. See [Wiring Dynamic Content](https://github.com/ShakimaMF/sprincul/wiki/Wiring-Dynamic-Content).
+- Add `unwire(element)` for releasing a subtree's bindings and listeners before discarding it. See [Wiring Dynamic Content](https://github.com/ShakimaMF/sprincul/wiki/Wiring-Dynamic-Content).
 - Add `options` parameter to `Sprincul.mount()`, with `onReady` and `devMode` (`devMode` was previously `init()`-only). Add a `root` option to `init()`. See [Mounting and Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting).
 - Add `Sprincul.destroyAll()` to tear down every live model instance at once.
 
@@ -27,10 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Fix a race where destroying and remounting a model on the same element within one synchronous tick could register its bindings twice, causing duplicate callback invocations
-- Fix a model whose constructor or binding setup throws leaving its element permanently unmountable, with `unmount()` unable to recover it
-- Warn when `unmount()`/`destroy()` is given a model name that doesn't match the instance mounted on the element, instead of silently doing nothing
-- Fix any attribute starting with `on` (such as `once`, `one`, `only`) being treated as an event handler and stripped from the DOM; only attributes the DOM exposes as real event handlers are bound now
-- Fix an element bound to both a state property and a computed property derived from it running its callback twice for a single change; each callback now runs at most once per element per frame
+- Fix a model whose constructor or binding setup throws leaving its element permanently unmountable
+- Warn when `unmount()`/`destroy()` is given a model name that doesn't match the element's instance
+- Fix non-event attributes starting with `on` (such as `once`, `one`, `only`) being bound as event handlers and stripped from the DOM
+- Fix an element bound to both a state property and a computed derived from it rendering twice per change
 
 ## [0.2.1] - 2026-05-20
 
