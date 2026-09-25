@@ -4,17 +4,10 @@
 	"description": "A lightweight, browser-side JS framework for adding reactivity to HTML.",
 	"homepage": "https://github.com/ShakimaMF/sprincul",
 	"type": "module",
-	"files": [
-		"dist",
-		"README.md",
-		"LICENSE"
-	],
 	"source": "src/index.ts",
 	"main": "./dist/index.js",
 	"module": "./dist/index.js",
 	"types": "./dist/index.d.ts",
-	"unpkg": "./dist/index.min.js",
-	"jsdelivr": "./dist/index.min.js",
 	"sideEffects": true,
 	"exports": {
 		".": {
@@ -34,7 +27,6 @@
 		"build": "bun run build:js && bun run build:types",
 		"build:js": "bun build src/index.ts --target=browser --format=esm --outdir=dist --sourcemap=external && bun build src/index.ts --target=browser --format=esm --outdir=dist --minify --sourcemap=external --entry-naming [dir]/[name].min.[ext]",
 		"build:types": "tsc",
-		"prepublishOnly": "bun run build",
 		"format": "bunx prettier . --write",
 		"format:check": "bunx prettier . --check"
 	},
