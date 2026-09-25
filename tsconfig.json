@@ -1,0 +1,16 @@
+{
+	"compilerOptions": {
+		"target": "es2018",
+		"module": "es6",
+		"moduleResolution": "bundler",
+		"declaration": true,
+		"emitDeclarationOnly": true,
+		"noEmitOnError": false,
+		"outDir": "dist",
+		"rootDir": "src",
+		"strict": true,
+		"skipLibCheck": true
+	},
+	"include": ["src"],
+	"exclude": ["tests"]
+}

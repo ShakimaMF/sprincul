@@ -1,0 +1,7 @@
+{
+	"useTabs": true,
+	"printWidth": 120,
+	"objectWrap": "collapse",
+	"singleAttributePerLine": false,
+	"proseWrap": "preserve"
+}
