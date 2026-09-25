@@ -1,0 +1,74 @@
+name: Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Version tag to create on the release branch (e.g. v0.3.0)"
+        required: true
+  # Uncomment to trigger automatically whenever a version tag is pushed to main:
+  # push:
+  #   tags:
+  #     - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Build dist and publish to the release branch
+    runs-on: ubuntu-slim
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          submodules: false
+          fetch-depth: 0
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Fail fast if this tag already exists
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/${{ inputs.tag }}" >/dev/null 2>&1; then
+            echo "::error::Tag ${{ inputs.tag }} already exists. Choose a new tag; tags are never moved."
+            exit 1
+          fi
+
+      - name: Switch the working tree to the release branch, at the source commit's content
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin main
+          SOURCE_SHA=$(git rev-parse FETCH_HEAD)
+          echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
+
+          if git ls-remote --exit-code --heads origin release >/dev/null 2>&1; then
+            git fetch origin release
+            git switch -C release origin/release
+          else
+            git switch --orphan release
+          fi
+
+          # Replace the whole tree with the source ref's, so files removed since the last
+          # release (including any dist/ committed there before) are removed here too
+          git read-tree -m -u "$SOURCE_SHA"
+
+      # Build AFTER switching to release: read-tree above deletes any dist/ a prior
+      # release left on this branch, so building first would just get thrown away
+      - name: Run build
+        run: bun run build
+
+      - name: Commit and push the release
+        run: |
+          git add -f dist/
+          git commit -m "release: ${{ inputs.tag }}"
+
+          git push origin release
+          git tag "${{ inputs.tag }}"
+          git push origin "refs/tags/${{ inputs.tag }}"
