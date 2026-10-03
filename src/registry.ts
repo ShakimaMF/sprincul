@@ -18,3 +18,18 @@ export function setCore(model: SprinculModel, core: SprinculCore): void {
 export function deleteCore(model: SprinculModel): void {
 	cores.delete(model);
 }
+
+/** element -> the live model mounted on it; removed as soon as teardown starts. */
+const instances = new WeakMap<HTMLElement, SprinculModel>();
+
+export function getInstance(element: HTMLElement): SprinculModel | undefined {
+	return instances.get(element);
+}
+
+export function setInstance(element: HTMLElement, model: SprinculModel): void {
+	instances.set(element, model);
+}
+
+export function deleteInstance(model: SprinculModel): void {
+	if (instances.get(model.$el) === model) instances.delete(model.$el);
+}

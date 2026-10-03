@@ -1,6 +1,6 @@
 import { map, type MapStore } from "nanostores";
 import { SprinculCore } from "./SprinculCore";
-import { getCore } from "./registry";
+import { getCore, getInstance } from "./registry";
 import type { BoundDefaults, DataValue } from "./types";
 
 /** Returned by #parseData for a value that can't be read as the fallback's type. */
@@ -132,6 +132,31 @@ export default class SprinculModel {
 		}
 
 		return matches;
+	}
+
+	/**
+	 * Get the nested model mounted on the element marked `data-ref="<name>"` (a ref on a child model's root).
+	 *
+	 * @example this.$child<ZoneStack>('stack')?.isDirty
+	 *
+	 * @param {string} name - The ref name on the child model's root
+	 * @return {T | null} The child's instance, or null if no model is mounted there.
+	 */
+	$child<T extends SprinculModel = SprinculModel>(name: string): T | null {
+		const element = this.$ref(name);
+		return element ? ((getInstance(element) as T | undefined) ?? null) : null;
+	}
+
+	/**
+	 * Get every nested model mounted on an element marked `data-ref="<name>"`, in document order.
+	 *
+	 * @param {string} name - The ref name on the child models' roots
+	 * @return {T[]} The children's instances; refs with no model mounted are skipped.
+	 */
+	$children<T extends SprinculModel = SprinculModel>(name: string): T[] {
+		return this.$refs(name)
+			.map((element) => getInstance(element) as T | undefined)
+			.filter((instance): instance is T => instance !== undefined);
 	}
 
 	/**

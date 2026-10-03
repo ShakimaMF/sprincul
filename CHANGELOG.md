@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add `data-ref` with `$ref()` / `$refs()` for reading elements within a model. See [Refs](https://github.com/ShakimaMF/sprincul/wiki/Refs).
 - Add `$data(name, fallback)` for reading typed config from a model root's data attributes. See [Model Data](https://github.com/ShakimaMF/sprincul/wiki/Model-Data).
+- Add `$child()` / `$children()` and `Sprincul.instanceFor()` for reaching a nested model's instance. See [Refs](https://github.com/ShakimaMF/sprincul/wiki/Refs#reaching-a-nested-model).
 
 ### Changed
 

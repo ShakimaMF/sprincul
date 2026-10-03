@@ -9,7 +9,7 @@ import type {
 	SprinculModelRegistry,
 	SprinculMountOptions,
 } from "./types";
-import { deleteCore, getCore, setCore } from "./registry";
+import { deleteCore, deleteInstance, getCore, getInstance, setCore, setInstance } from "./registry";
 
 /**
  * @class Sprincul
@@ -326,6 +326,17 @@ export default class Sprincul {
 		});
 	}
 
+	/**
+	 * Get the model instance mounted on an element.
+	 *
+	 * @param element - A model's root element
+	 * @returns The live instance, or null if none is mounted there (or it is being torn down)
+	 */
+	static instanceFor<T extends SprinculModel = SprinculModel>(element: Element | null | undefined): T | null {
+		if (!element) return null;
+		return (getInstance(element as HTMLElement) as T | undefined) ?? null;
+	}
+
 	static destroyAll(): void {
 		Array.from(Sprincul.#instancesByName.keys()).forEach((modelName) => {
 			Sprincul.destroy(modelName);
@@ -335,6 +346,8 @@ export default class Sprincul {
 	static #destroyInstance(model: SprinculModel): void {
 		if (Sprincul.#destroying.has(model)) return;
 		Sprincul.#destroying.add(model);
+		// Stop handing it out the moment teardown starts
+		deleteInstance(model);
 
 		// beforeDestroy is called synchronously; if it returns a Promise, the core stays attached and
 		// tracked until it resolves (a remount attempt in the meantime is treated as already processed).
@@ -382,9 +395,12 @@ export default class Sprincul {
 
 		Sprincul.#instancesByName.get(modelName)!.add(model);
 		Sprincul.#modelNames.set(model, modelName);
+		setInstance(model.$el, model);
 	}
 
 	static #untrackModelInstance(model: SprinculModel): void {
+		deleteInstance(model);
+
 		const modelName = Sprincul.#modelNames.get(model);
 		if (!modelName) return;
 
