@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-import { expect, test, describe } from "bun:test";
+import { expect, test, describe, spyOn } from "bun:test";
 import { html, waitForDomUpdate } from "../helpers.ts";
 
 describe("Sprincul - Refs", () => {
@@ -110,31 +110,23 @@ describe("Sprincul - Refs", () => {
 		expect(child.$ref("child")).toBeNull();
 	});
 
-	test("wire() adds refs and unwire() releases only the wired ones", () => {
-		class ListModel extends SprinculModel {}
+	test("markup inserted without wire() is found", () => {
+		class ResultsModel extends SprinculModel {}
 
 		const el = document.createElement("div");
-		el.innerHTML = html`<ul data-ref="list"><li data-ref="item">A</li></ul>`;
+		el.innerHTML = html`<ul></ul><template><li data-ref="item">cloned</li></template>`;
 		container.appendChild(el);
 
-		const instance = Sprincul.mount(el, ListModel);
+		const instance = Sprincul.mount(el, ResultsModel);
 		const list = el.querySelector("ul")!;
 
-		const li = document.createElement("li");
-		li.setAttribute("data-ref", "item");
-		li.textContent = "B";
-		list.appendChild(li);
-		instance.wire(list);
+		list.innerHTML = html`<li data-ref="item">fetched</li>`;
+		list.appendChild(el.querySelector("template")!.content.cloneNode(true));
 
-		expect(instance.$refs("item").map((node: HTMLElement) => node.textContent)).toEqual(["A", "B"]);
-
-		instance.unwire(list);
-
-		expect(instance.$refs("item").map((node: HTMLElement) => node.textContent)).toEqual(["A"]);
-		expect(instance.$ref("list")).toBe(list);
+		expect(instance.$refs("item").map((li: HTMLElement) => li.textContent)).toEqual(["fetched", "cloned"]);
 	});
 
-	test("an element removed without unwire() is no longer returned", () => {
+	test("an element removed from the model is no longer returned", () => {
 		const el = document.createElement("div");
 		el.innerHTML = html`<span data-ref="note">hi</span>`;
 		container.appendChild(el);
@@ -145,14 +137,37 @@ describe("Sprincul - Refs", () => {
 		expect(instance.$ref("note")).toBeNull();
 	});
 
-	test("reading a ref after destroy throws", () => {
+	test("a ref name with whitespace never matches and warns in devMode", () => {
+		const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+
 		const el = document.createElement("div");
-		el.innerHTML = html`<span data-ref="note"></span>`;
+		el.innerHTML = html`<button data-ref="tab primary"></button>`;
 		container.appendChild(el);
 
-		const instance = Sprincul.mount(el, class extends SprinculModel {});
-		Sprincul.unmount(el);
+		const instance = Sprincul.mount(el, class extends SprinculModel {}, { devMode: true });
 
-		expect(() => instance.$ref("note")).toThrow(/before core was available/);
+		expect(instance.$ref("tab")).toBeNull();
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[Sprincul] data-ref="tab primary" contains whitespace; a ref takes a single name.',
+		);
+
+		warnSpy.mockRestore();
+	});
+
+	test("reading a model's own root ref from inside it warns in devMode", () => {
+		const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+
+		const el = document.createElement("div");
+		el.setAttribute("data-ref", "stack");
+		container.appendChild(el);
+
+		const instance = Sprincul.mount(el, class extends SprinculModel {}, { devMode: true });
+
+		expect(instance.$ref("stack")).toBeNull();
+		expect(warnSpy).toHaveBeenCalledWith(
+			"[Sprincul] $ref(\"stack\") matches this model's own root, which is its parent model's ref, not its own.",
+		);
+
+		warnSpy.mockRestore();
 	});
 });
