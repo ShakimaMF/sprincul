@@ -67,7 +67,9 @@ export default class Sprincul {
 	}
 
 	/**
-	 * Initiate a one-time scan of every `[data-model]` element within `options.root` (default `document.body`).
+	 * Mount every registered `[data-model]` element within `options.root` (default `document.body`), the root included.
+	 * Elements already mounted are skipped, so it is safe to call again on content added later.
+	 * Nested models mount before the models containing them, so a parent's `afterInit()` finds its children mounted.
 	 *
 	 * @param {SprinculInitOptions} options
 	 *
@@ -82,8 +84,15 @@ export default class Sprincul {
 		const devMode = options?.devMode ?? false;
 		const root = options?.root ?? document.body;
 
-		const modelElements = Array.from(root.querySelectorAll("[data-model]"));
+		const modelElements = Array.from(root.querySelectorAll<HTMLElement>("[data-model]"));
 		if (root.hasAttribute("data-model")) modelElements.unshift(root);
+
+		// Children before parents; siblings keep document order
+		modelElements.sort((a, b) => {
+			if (a.contains(b)) return 1;
+			if (b.contains(a)) return -1;
+			return Sprincul.#documentOrder(a, b);
+		});
 
 		const modelInfos: SprinculModelInfo[] = [];
 
@@ -337,10 +346,34 @@ export default class Sprincul {
 		return (getInstance(element as HTMLElement) as T | undefined) ?? null;
 	}
 
-	static destroyAll(): void {
-		Array.from(Sprincul.#instancesByName.keys()).forEach((modelName) => {
-			Sprincul.destroy(modelName);
+	/**
+	 * Destroy every model mounted on `root` or inside it, parents before children, so a parent's
+	 * `beforeDestroy()` can still reach its nested models.
+	 *
+	 * @param root - The element whose subtree to tear down
+	 */
+	static unmountAll(root: HTMLElement): void {
+		const elements = [root, ...Array.from(root.querySelectorAll<HTMLElement>("[data-model]"))];
+
+		elements.forEach((element) => {
+			const model = getInstance(element);
+			if (model) Sprincul.#destroyInstance(model);
 		});
+	}
+
+	/** Destroy every live model, parents before children. */
+	static destroyAll(): void {
+		const models: SprinculModel[] = [];
+		Sprincul.#instancesByName.forEach((instances) => models.push(...instances));
+
+		models
+			.sort((a, b) => Sprincul.#documentOrder(a.$el, b.$el))
+			.forEach((model) => Sprincul.#destroyInstance(model));
+	}
+
+	/** Sort comparator for document order (an ancestor comes before its descendants). */
+	static #documentOrder(a: Element, b: Element): number {
+		return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
 	}
 
 	static #destroyInstance(model: SprinculModel): void {
