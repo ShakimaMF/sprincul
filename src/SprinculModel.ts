@@ -96,6 +96,39 @@ export default class SprinculModel {
 	}
 
 	/**
+	 * Get the first element marked `data-ref="<name>"` within this model.
+	 *
+	 * @example this.$ref<HTMLInputElement>('email')?.focus()
+	 *
+	 * @param {string} name - The ref name
+	 * @return {T | null} The first matching element, or null if there is none.
+	 * @throws {Error} If the method is called before the core is available.
+	 */
+	$ref<T extends HTMLElement = HTMLElement>(name: string): T | null {
+		return (this.$refs<T>(name)[0] as T | undefined) ?? null;
+	}
+
+	/**
+	 * Get every element marked `data-ref="<name>"` within this model, in the order they were registered.
+	 *
+	 * @example this.$refs<HTMLLIElement>('item').forEach((li) => li.classList.remove('active'))
+	 *
+	 * @param {string} name - The ref name
+	 * @return {T[]} The matching elements, or an empty array if there are none.
+	 * @throws {Error} If the method is called before the core is available.
+	 */
+	$refs<T extends HTMLElement = HTMLElement>(name: string): T[] {
+		const core = this.#core || getCore(this);
+		if (!core) {
+			throw new Error(
+				`[Sprincul] Ref "${name}" read before core was available. Read it from beforeInit() or later instead.`,
+			);
+		}
+
+		return core.getRefs(name) as T[];
+	}
+
+	/**
 	 * Add a computed property that derives its value from state
 	 * The computed property will re-calculate only when the specified dependencies change
 	 *

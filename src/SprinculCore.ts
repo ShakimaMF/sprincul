@@ -15,6 +15,8 @@ export class SprinculCore {
 	#bindings = new Map<string, Set<BindingRecord>>();
 	/** element -> its own binding records, so dedupe and subtree release don't scan every binding */
 	#bindingsByElement = new Map<HTMLElement, Set<BindingRecord>>();
+	/** ref name -> element -> viaWire, in registration order */
+	#refs = new Map<string, Map<HTMLElement, boolean>>();
 	#computed = new Map<string, ReadableAtom>();
 	#domListeners = new Set<DomListenerRecord>();
 	#unsubscribers = new Set<() => void>();
@@ -145,6 +147,13 @@ export class SprinculCore {
 			if (elementBindings.size === 0) this.#bindingsByElement.delete(node);
 		});
 
+		this.#refs.forEach((elements, name) => {
+			elements.forEach((viaWire, node) => {
+				if (viaWire && isInScope(node)) elements.delete(node);
+			});
+			if (elements.size === 0) this.#refs.delete(name);
+		});
+
 		this.#domListeners.forEach((record) => {
 			if (!isInScope(record.element)) return;
 			record.element.removeEventListener(record.type, record.listener, record.options);
@@ -184,7 +193,12 @@ export class SprinculCore {
 		const closestModelElement = container.closest("[data-model]");
 		const withinThisModel = container === this.instance.$el || closestModelElement === this.instance.$el;
 
+		if (isNestedModelRoot && this.#ownsNestedRoot(container)) {
+			this.#trackRefs(container, options);
+		}
+
 		if (!isNestedModelRoot && withinThisModel) {
+			this.#trackRefs(container, options);
 			this.#processElementBindings(container, options);
 		}
 
@@ -193,11 +207,47 @@ export class SprinculCore {
 			const closest = element.closest("[data-model]");
 
 			// Skip nested model elements - they will be processed by their own instance
-			if (element.hasAttribute("data-model") && element !== container) return;
+			if (element.hasAttribute("data-model") && element !== container) {
+				// A ref on a child model's root is the parent's handle on that child
+				if (this.#ownsNestedRoot(element)) this.#trackRefs(element, options);
+				return;
+			}
 			if (closest !== this.instance.$el) return;
 
+			this.#trackRefs(element, options);
 			this.#processElementBindings(element, options);
 		});
+	}
+
+	/** Elements registered under `name` that are still inside this model, in document order. */
+	getRefs(name: string): HTMLElement[] {
+		const elements = this.#refs.get(name);
+		if (!elements) return [];
+
+		return Array.from(elements.keys())
+			.filter((element) => this.instance.$el.contains(element))
+			.sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+	}
+
+	#ownsNestedRoot(element: HTMLElement): boolean {
+		return element.parentElement?.closest("[data-model]") === this.instance.$el;
+	}
+
+	#trackRefs(element: HTMLElement, options: ProcessOptions) {
+		// A model's own root ref belongs to its parent
+		if (element === this.instance.$el) return;
+
+		const name = element.getAttribute("data-ref")?.trim();
+		if (!name) return;
+
+		let elements = this.#refs.get(name);
+		if (!elements) {
+			elements = new Map();
+			this.#refs.set(name, elements);
+		}
+
+		// Keep the first registration, so wiring over scanned markup can't make it unwirable
+		if (!elements.has(element)) elements.set(element, options.viaWire === true);
 	}
 
 	registerComputed(key: string, computedStore: ReadableAtom) {
@@ -273,6 +323,7 @@ export class SprinculCore {
 		this.#domListeners.clear();
 		this.#bindings.clear();
 		this.#bindingsByElement.clear();
+		this.#refs.clear();
 		this.#computed.clear();
 		this.#pendingUpdates.clear();
 
