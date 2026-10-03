@@ -76,6 +76,7 @@ The full reference lives in the [wiki](https://github.com/ShakimaMF/sprincul/wik
 - [Getting Started](https://github.com/ShakimaMF/sprincul/wiki/Getting-Started) - how it works, installation, and a quick start walkthrough
 - [Data Bindings](https://github.com/ShakimaMF/sprincul/wiki/Data-Bindings) - connect `this.state` to the DOM with `data-bind-<prop>`
 - [Events](https://github.com/ShakimaMF/sprincul/wiki/Events) - wire up `onclick`, `oninput`, and other native event attributes
+- [Model Events](https://github.com/ShakimaMF/sprincul/wiki/Model-Events) - `$emit`, `$listen`, and `$signal` for talking between models and cleaning up automatically
 - [Refs](https://github.com/ShakimaMF/sprincul/wiki/Refs) - read elements with `data-ref`, `$ref()`, and `$refs()`
 - [Model Data](https://github.com/ShakimaMF/sprincul/wiki/Model-Data) - read typed config from the model root's data attributes with `$data()`
 - [Computed Properties](https://github.com/ShakimaMF/sprincul/wiki/Computed-Properties) - derived state with `addComputedProp`

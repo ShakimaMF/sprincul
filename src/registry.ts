@@ -33,3 +33,21 @@ export function setInstance(element: HTMLElement, model: SprinculModel): void {
 export function deleteInstance(model: SprinculModel): void {
 	if (instances.get(model.$el) === model) instances.delete(model.$el);
 }
+
+/** model -> the controller behind its $signal, aborted once teardown finishes. */
+const controllers = new WeakMap<SprinculModel, AbortController>();
+
+export function getSignal(model: SprinculModel): AbortSignal {
+	let controller = controllers.get(model);
+	if (!controller) {
+		controller = new AbortController();
+		controllers.set(model, controller);
+	}
+	return controller.signal;
+}
+
+export function abortSignal(model: SprinculModel): void {
+	// Create it aborted if it was never read, so a $signal read after teardown is already aborted
+	getSignal(model);
+	controllers.get(model)!.abort();
+}

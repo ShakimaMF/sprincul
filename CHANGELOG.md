@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `$data(name, fallback)` for reading typed config from a model root's data attributes. See [Model Data](https://github.com/ShakimaMF/sprincul/wiki/Model-Data).
 - Add `$child()` / `$children()` and `Sprincul.instanceFor()` for reaching a nested model's instance. See [Refs](https://github.com/ShakimaMF/sprincul/wiki/Refs#reaching-a-nested-model).
 - Add `Sprincul.unmountAll(root)` for tearing down every model in a subtree, parents first. See [Mounting and Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting).
+- Add `$emit()`, `$listen()`, and `$signal` for events between models and cleanup on destroy, and a `signal` option on `Sprincul.store.subscribe()`. See [Model Events](https://github.com/ShakimaMF/sprincul/wiki/Model-Events).
 
 ### Changed
 

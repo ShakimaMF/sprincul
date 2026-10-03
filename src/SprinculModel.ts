@@ -1,6 +1,6 @@
 import { map, type MapStore } from "nanostores";
 import { SprinculCore } from "./SprinculCore";
-import { getCore, getInstance } from "./registry";
+import { getCore, getInstance, getSignal } from "./registry";
 import type { BoundDefaults, DataValue } from "./types";
 
 /** Returned by #parseData for a value that can't be read as the fallback's type. */
@@ -218,6 +218,64 @@ export default class SprinculModel {
 	static #ownerOf(element: HTMLElement): Element | null {
 		const scope = element.hasAttribute("data-model") ? element.parentElement : element;
 		return scope?.closest("[data-model]") ?? null;
+	}
+
+	/**
+	 * An `AbortSignal` aborted when this model is destroyed (after `beforeDestroy()` settles).
+	 * Pass it to anything that should stop with the model: `fetch`, `addEventListener`, `Sprincul.store.subscribe`.
+	 *
+	 * @example fetch(url, { signal: this.$signal })
+	 */
+	get $signal(): AbortSignal {
+		return getSignal(this);
+	}
+
+	/**
+	 * Dispatch a bubbling `CustomEvent` from this model's root, for a parent model (or any code) to listen for.
+	 *
+	 * @example this.$emit('pick', { zone, module })
+	 *
+	 * @param {string} type - The event type; prefer names that don't collide with native events
+	 * @param detail - The event's `detail`
+	 * @param options - Other `CustomEvent` options, such as `cancelable` or `composed`
+	 * @return {CustomEvent<D>} The dispatched event, so a cancelable one can be checked with `defaultPrevented`.
+	 */
+	$emit<D = unknown>(type: string, detail?: D, options?: Omit<CustomEventInit<D>, "detail">): CustomEvent<D> {
+		if (`on${type}` in this.$el) {
+			(this.#core || getCore(this))?.warn(
+				`$emit("${type}") uses a native event name, so it mixes with the native events bubbling through the same elements.`,
+			);
+		}
+
+		const event = new CustomEvent<D>(type, { bubbles: true, ...options, detail });
+		this.$el.dispatchEvent(event);
+		return event;
+	}
+
+	/**
+	 * Add an event listener that is removed when this model is destroyed. With no target, it listens on this
+	 * model's root, where events from nested models bubble to. The handler is called with the model as `this`.
+	 *
+	 * @example this.$listen('pick', (e) => this.addModule(e.detail))
+	 * @example this.$listen(document, 'keydown', (e) => this.close())
+	 *
+	 * @return {() => void} A function that removes the listener early.
+	 */
+	$listen<E extends Event = CustomEvent>(type: string, handler: (event: E) => void): () => void;
+	$listen<E extends Event = Event>(
+		target: EventTarget,
+		type: string,
+		handler: (event: E) => void,
+		options?: AddEventListenerOptions,
+	): () => void;
+	$listen(...args: any[]): () => void {
+		const [target, type, handler, options]: [EventTarget, string, (event: Event) => void, AddEventListenerOptions?] =
+			typeof args[0] === "string" ? [this.$el, args[0], args[1]] : [args[0], args[1], args[2], args[3]];
+
+		const listener = (event: Event) => handler.call(this, event);
+		target.addEventListener(type, listener, { ...options, signal: this.$signal });
+
+		return () => target.removeEventListener(type, listener, options);
 	}
 
 	/**

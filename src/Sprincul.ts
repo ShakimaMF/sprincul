@@ -9,7 +9,7 @@ import type {
 	SprinculModelRegistry,
 	SprinculMountOptions,
 } from "./types";
-import { deleteCore, deleteInstance, getCore, getInstance, setCore, setInstance } from "./registry";
+import { abortSignal, deleteCore, deleteInstance, getCore, getInstance, setCore, setInstance } from "./registry";
 
 /**
  * @class Sprincul
@@ -38,12 +38,28 @@ export default class Sprincul {
 			}
 			Sprincul.#globalStores.get(key)!.set(value);
 		},
-		subscribe<T = any>(key: string, callback: (value: T | undefined) => void): () => void {
+		/**
+		 * Listen for changes to a key. Pass `options.signal` (e.g. a model's `$signal`) to unsubscribe when it aborts.
+		 */
+		subscribe<T = any>(
+			key: string,
+			callback: (value: T | undefined) => void,
+			options?: { signal?: AbortSignal },
+		): () => void {
 			if (!Sprincul.#globalStores.has(key)) {
 				// Initialize an atom that can hold undefined until a value is set
 				Sprincul.#globalStores.set(key, atom<T | undefined>());
 			}
-			return Sprincul.#globalStores.get(key)!.listen(callback as (value: any) => void);
+			const unsubscribe = Sprincul.#globalStores.get(key)!.listen(callback as (value: any) => void);
+
+			const signal = options?.signal;
+			if (signal?.aborted) {
+				unsubscribe();
+			} else {
+				signal?.addEventListener("abort", unsubscribe, { once: true });
+			}
+
+			return unsubscribe;
 		},
 		clear(): void {
 			Sprincul.#globalStores.clear();
@@ -401,6 +417,9 @@ export default class Sprincul {
 	}
 
 	static #finishDestroy(model: SprinculModel): void {
+		// After beforeDestroy has settled, so it could still rely on what $signal guards
+		abortSignal(model);
+
 		const core = getCore(model);
 		if (core) {
 			try {
