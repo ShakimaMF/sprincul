@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add `data-ref` with `$ref()` / `$refs()` for reading elements within a model. See [Refs](https://github.com/ShakimaMF/sprincul/wiki/Refs).
 
+### Changed
+
+- **Breaking:** `data-bind-*` names follow the `dataset` rule: `data-bind-button-text` binds `state.buttonText` (and `defaults.buttonText`) instead of `state["button-text"]`. See [Data Bindings](https://github.com/ShakimaMF/sprincul/wiki/Data-Bindings).
+
 ## [0.3.0] - 2026-09-24
 
 ### Added

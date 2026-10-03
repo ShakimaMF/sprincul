@@ -47,6 +47,54 @@ describe("Sprincul - Data Bindings", () => {
 			expect(div.getAttribute("title")).toBe("New Title");
 			expect(div.textContent).toBe("New Content");
 		});
+
+		test("converts dashed names to camelCase state keys like dataset", async () => {
+			container.innerHTML = html`
+				<div data-model="TestModel">
+					<button onclick="rename">Rename</button>
+					<span data-bind-button-text="showLabel"></span>
+					<span data-bind-buttontext="showLower"></span>
+					<span data-bind-item-2="showItem"></span>
+				</div>
+			`;
+
+			class TestModel extends SprinculModel {
+				beforeInit() {
+					this.state.buttonText = "Save";
+					this.state.buttontext = "lower";
+					this.state["item-2"] = "second";
+				}
+
+				rename() {
+					this.state.buttonText = "Saved";
+				}
+
+				showLabel(el: HTMLElement) {
+					el.textContent = this.state.buttonText;
+				}
+
+				showLower(el: HTMLElement) {
+					el.textContent = this.state.buttontext;
+				}
+
+				showItem(el: HTMLElement) {
+					el.textContent = this.state["item-2"];
+				}
+			}
+
+			Sprincul.register("TestModel", TestModel);
+			Sprincul.init();
+
+			const [label, lower, item] = Array.from(container.querySelectorAll("span"));
+			expect(label.textContent).toBe("Save");
+			expect(lower.textContent).toBe("lower");
+			expect(item.textContent).toBe("second");
+
+			(container.querySelector("button") as HTMLButtonElement).click();
+			await waitForDomUpdate();
+
+			expect(label.textContent).toBe("Saved");
+		});
 	});
 
 	describe("Event handlers", () => {

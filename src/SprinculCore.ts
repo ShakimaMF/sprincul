@@ -337,7 +337,10 @@ export class SprinculCore {
 		Array.from(element.attributes).forEach((attr) => {
 			// Handle data-bind-* attributes for reactive property bindings (e.g. data-bind-<prop>="callbackFn")
 			if (attr.name.startsWith("data-bind-")) {
-				const propertyName = attr.name.substring("data-bind-".length); // The state property to watch
+				// The state property to watch, named by the same rule as dataset (data-bind-button-text -> buttonText)
+				const propertyName = attr.name
+					.substring("data-bind-".length)
+					.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
 				const callbackName = attr.value; // The callback to call when it changes
 
 				const alreadyBound = this.#trackBinding(propertyName, element, callbackName, options.viaWire === true);
@@ -366,7 +369,7 @@ export class SprinculCore {
 
 				const bindFn = Reflect.get(this.instance, callbackName);
 				if (typeof bindFn !== "function") {
-					this.#warn(`Binding callback "${callbackName}" not found for data-bind-${propertyName}.`);
+					this.#warn(`Binding callback "${callbackName}" not found for ${attr.name}.`);
 					return;
 				}
 
