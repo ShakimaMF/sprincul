@@ -42,6 +42,9 @@ export type BoundElementDefault = {
  */
 export type BoundDefaults = Record<string, BoundElementDefault>;
 
+/** What `$data()` returns for a fallback of type `T`: literal fallbacks widen to their primitive type. */
+export type DataValue<T> = T extends number ? number : T extends boolean ? boolean : T extends string ? string : T;
+
 /**
  * Options accepted by `init()`.
  *

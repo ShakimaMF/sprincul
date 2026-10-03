@@ -77,6 +77,7 @@ The full reference lives in the [wiki](https://github.com/ShakimaMF/sprincul/wik
 - [Data Bindings](https://github.com/ShakimaMF/sprincul/wiki/Data-Bindings) - connect `this.state` to the DOM with `data-bind-<prop>`
 - [Events](https://github.com/ShakimaMF/sprincul/wiki/Events) - wire up `onclick`, `oninput`, and other native event attributes
 - [Refs](https://github.com/ShakimaMF/sprincul/wiki/Refs) - read elements with `data-ref`, `$ref()`, and `$refs()`
+- [Model Data](https://github.com/ShakimaMF/sprincul/wiki/Model-Data) - read typed config from the model root's data attributes with `$data()`
 - [Computed Properties](https://github.com/ShakimaMF/sprincul/wiki/Computed-Properties) - derived state with `addComputedProp`
 - [Mounting & Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting) - `init()`, `mount()`, `unmount()`, `destroyAll()`, and their options
 - [Lifecycle & Hydration](https://github.com/ShakimaMF/sprincul/wiki/Lifecycle-and-Hydration) - `beforeInit`, `afterInit`, `beforeDestroy`, cloaking, and hydrating from server-rendered defaults

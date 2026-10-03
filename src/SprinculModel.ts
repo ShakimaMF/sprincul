@@ -1,7 +1,10 @@
 import { map, type MapStore } from "nanostores";
 import { SprinculCore } from "./SprinculCore";
 import { getCore } from "./registry";
-import type { BoundDefaults } from "./types";
+import type { BoundDefaults, DataValue } from "./types";
+
+/** Returned by #parseData for a value that can't be read as the fallback's type. */
+const MALFORMED = Symbol("malformed");
 
 /**
  * @class SprinculModel Base class for user models
@@ -129,6 +132,61 @@ export default class SprinculModel {
 		}
 
 		return matches;
+	}
+
+	/**
+	 * Read a `data-*` attribute on this model's root, converted by the fallback's type:
+	 * - array, object or `null`: JSON
+	 * - number: `Number()`
+	 * - boolean: `"true"` or present without a value is true, `"false"` is false
+	 * - string: as it is
+	 *
+	 * A missing attribute gives the fallback. So does a malformed one, with a dev-mode warning; it never throws.
+	 *
+	 * @example this.fields = this.$data<string[]>('fields', [])
+	 *
+	 * @param {string} name - The `dataset` name (camelCase: `maxSize` for `data-max-size`)
+	 * @param fallback - The value to use when the attribute is missing or malformed
+	 */
+	$data<T>(name: string, fallback: T): DataValue<T> {
+		const raw = this.$el.dataset[name];
+		if (raw === undefined) return fallback as DataValue<T>;
+
+		const value = SprinculModel.#parseData(raw, fallback);
+		if (value !== MALFORMED) return value as DataValue<T>;
+
+		const attribute = `data-${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+		(this.#core || getCore(this))?.warn(
+			`${attribute}="${raw}" on model "${this.$el.dataset.model}" can't be read like its fallback; using the fallback.`,
+		);
+		return fallback as DataValue<T>;
+	}
+
+	static #parseData(raw: string, fallback: unknown): unknown {
+		switch (typeof fallback) {
+			case "number": {
+				const value = Number(raw);
+				return raw.trim() === "" || Number.isNaN(value) ? MALFORMED : value;
+			}
+			case "boolean":
+				if (raw === "" || raw === "true") return true;
+				return raw === "false" ? false : MALFORMED;
+			case "object": {
+				let value: unknown;
+				try {
+					value = JSON.parse(raw);
+				} catch {
+					return MALFORMED;
+				}
+
+				// null accepts any JSON; an array or object fallback needs the same shape back
+				if (fallback === null) return value;
+				if (Array.isArray(fallback)) return Array.isArray(value) ? value : MALFORMED;
+				return value !== null && typeof value === "object" && !Array.isArray(value) ? value : MALFORMED;
+			}
+			default:
+				return raw;
+		}
 	}
 
 	/** The model a ref belongs to: a ref on a nested model's root is its parent's handle on that child. */
