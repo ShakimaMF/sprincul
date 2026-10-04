@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
-import { expect, test, describe } from "bun:test";
-import { html } from "../helpers.ts";
+import { expect, test, describe, spyOn } from "bun:test";
+import { html, initInstances } from "../helpers.ts";
 
 describe("Sprincul - Subtree mounting", () => {
 	function registerLogging(log: string[]) {
@@ -49,9 +49,9 @@ describe("Sprincul - Subtree mounting", () => {
 		Sprincul.registerAll({ Parent, Child });
 		container.innerHTML = html`<div data-model="Parent"><div data-model="Child" data-ref="child"></div></div>`;
 
-		Sprincul.init({ root: container });
+		const instances = initInstances(container);
 
-		expect(childFromParent).toBe(Sprincul.instanceFor(container.querySelector('[data-model="Child"]')));
+		expect(childFromParent).toBe(instances.get(container.querySelector('[data-model="Child"]')!));
 	});
 
 	test("init({ root }) again mounts only what is new", () => {
@@ -79,8 +79,73 @@ describe("Sprincul - Subtree mounting", () => {
 		Sprincul.unmountAll(first);
 
 		expect(log).toEqual(["destroy:first", "destroy:grandchild"]);
-		expect(Sprincul.instanceFor(first)).toBeNull();
-		expect(Sprincul.instanceFor(container.querySelector('[data-label="outside"]'))).not.toBeNull();
+	});
+
+	test("a parent's async beforeDestroy settles before its children are torn down", async () => {
+		const log: string[] = [];
+		let release!: () => void;
+
+		class Child extends SprinculModel {
+			flush() {
+				log.push("flush");
+			}
+
+			beforeDestroy() {
+				log.push("destroy:child");
+			}
+		}
+		class Parent extends SprinculModel {
+			async beforeDestroy() {
+				await new Promise<void>((resolve) => (release = resolve));
+				this.$child<Child>("child")?.flush();
+				log.push("destroy:parent");
+			}
+		}
+		Sprincul.registerAll({ Parent, Child });
+		container.innerHTML = html`<div data-model="Parent"><div data-model="Child" data-ref="child"></div></div>`;
+		Sprincul.init({ root: container });
+
+		const done = Sprincul.unmountAll(container);
+		expect(log).toEqual([]);
+
+		release();
+		await done;
+
+		expect(log).toEqual(["flush", "destroy:parent", "destroy:child"]);
+	});
+
+	test("remounting an element still tearing down is skipped with a devMode warning, and works once awaited", async () => {
+		const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+		let mounts = 0;
+		let release!: () => void;
+
+		class Slow extends SprinculModel {
+			afterInit() {
+				mounts++;
+			}
+
+			beforeDestroy() {
+				return new Promise<void>((resolve) => (release = resolve));
+			}
+		}
+		Sprincul.register("Slow", Slow);
+		container.innerHTML = html`<div data-model="Slow"></div>`;
+		Sprincul.init({ root: container });
+
+		const done = Sprincul.unmountAll(container);
+		Sprincul.init({ root: container, devMode: true });
+
+		expect(mounts).toBe(1);
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[Sprincul] Skipped "Slow": the model on this element is still running an async beforeDestroy(). Await unmount() or unmountAll() before mounting it again.',
+		);
+
+		release();
+		await done;
+		Sprincul.init({ root: container });
+
+		expect(mounts).toBe(2);
+		warnSpy.mockRestore();
 	});
 
 	test("destroyAll() tears down parents before children", () => {

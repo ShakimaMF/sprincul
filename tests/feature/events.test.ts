@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import { expect, test, describe, spyOn } from "bun:test";
-import { html } from "../helpers.ts";
+import { html, initInstances } from "../helpers.ts";
 
 describe("Sprincul - Model events", () => {
 	function mountPair() {
@@ -22,9 +22,7 @@ describe("Sprincul - Model events", () => {
 		Sprincul.registerAll({ Editor, Picker });
 
 		container.innerHTML = html`<div data-model="Editor"><div data-model="Picker" data-ref="picker"></div></div>`;
-		Sprincul.init({ root: container });
-
-		const editor = Sprincul.instanceFor(container.querySelector('[data-model="Editor"]'));
+		const editor = initInstances(container).get(container.querySelector('[data-model="Editor"]')!);
 		return { editor, picker: editor.$child("picker"), picks };
 	}
 
@@ -101,6 +99,20 @@ describe("Sprincul - Model events", () => {
 		expect(abortedDuringBeforeDestroy).toBe(false);
 		expect(instance.$signal.aborted).toBe(true);
 		expect(values).toEqual(["dark"]);
+	});
+
+	test("removing a $listen listener or store subscription early also detaches it from $signal", () => {
+		const el = document.createElement("div");
+		container.appendChild(el);
+		const instance = Sprincul.mount(el, class extends SprinculModel {});
+		const removeSpy = spyOn(instance.$signal, "removeEventListener");
+
+		const stopListening = instance.$listen("ping", () => {});
+		const unsubscribe = Sprincul.store.subscribe("theme", () => {}, { signal: instance.$signal });
+		stopListening();
+		unsubscribe();
+
+		expect(removeSpy.mock.calls.filter(([type]) => type === "abort")).toHaveLength(2);
 	});
 
 	test("$emit with a native event name warns in devMode", () => {

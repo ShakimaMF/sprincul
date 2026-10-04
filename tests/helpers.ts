@@ -17,6 +17,17 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]) {
 	return String.raw({ raw: strings.raw }, ...values);
 }
 
+/** Runs init() in devMode and returns the model mounted on each element, for tests that need instances. */
+export function initInstances(root: HTMLElement): Map<Element, any> {
+	const instances = new Map<Element, any>();
+	Sprincul.init({
+		root,
+		devMode: true,
+		onReady: (models: any[]) => models.forEach((model) => instances.set(model.element, model.instance)),
+	});
+	return instances;
+}
+
 export async function waitForDomUpdate() {
 	await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 }

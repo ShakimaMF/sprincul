@@ -136,6 +136,7 @@ export default class SprinculModel {
 
 	/**
 	 * Get the nested model mounted on the element marked `data-ref="<name>"` (a ref on a child model's root).
+	 * It's returned from its construction on: with an async `beforeInit()`, it may not have finished initializing.
 	 *
 	 * @example this.$child<ZoneStack>('stack')?.isDirty
 	 *
@@ -144,6 +145,20 @@ export default class SprinculModel {
 	 */
 	$child<T extends SprinculModel = SprinculModel>(name: string): T | null {
 		const element = this.$ref(name);
+		return element ? ((getInstance(element) as T | undefined) ?? null) : null;
+	}
+
+	/**
+	 * Get the model containing this one: the nearest `[data-model]` ancestor of this model's root.
+	 * Nested models mount first, so it is null during this model's own `beforeInit()`/`afterInit()` on the
+	 * first `init()`; reach it from event handlers and methods called later.
+	 *
+	 * @example this.$parent<ZoneEditor>()?.markDirty()
+	 *
+	 * @return {T | null} The parent's instance, or null if this model isn't nested in a mounted model.
+	 */
+	$parent<T extends SprinculModel = SprinculModel>(): T | null {
+		const element = this.$el.parentElement?.closest<HTMLElement>("[data-model]");
 		return element ? ((getInstance(element) as T | undefined) ?? null) : null;
 	}
 
@@ -272,10 +287,25 @@ export default class SprinculModel {
 		const [target, type, handler, options]: [EventTarget, string, (event: Event) => void, AddEventListenerOptions?] =
 			typeof args[0] === "string" ? [this.$el, args[0], args[1]] : [args[0], args[1], args[2], args[3]];
 
-		const listener = (event: Event) => handler.call(this, event);
-		target.addEventListener(type, listener, { ...options, signal: this.$signal });
+		// Each listener gets its own controller following $signal, so removing it early also detaches it from $signal
+		const signal = this.$signal;
+		const controller = new AbortController();
+		const stop = () => {
+			signal.removeEventListener("abort", stop);
+			controller.abort();
+		};
 
-		return () => target.removeEventListener(type, listener, options);
+		if (signal.aborted) {
+			controller.abort();
+		} else {
+			signal.addEventListener("abort", stop, { once: true });
+		}
+
+		target.addEventListener(type, (event: Event) => handler.call(this, event), {
+			...options,
+			signal: controller.signal,
+		});
+		return stop;
 	}
 
 	/**

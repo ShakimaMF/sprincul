@@ -24,6 +24,8 @@ export default class Sprincul {
 	static #modelNames = new WeakMap<SprinculModel, string>();
 	/** Instances mid-teardown: guards against a re-entrant destroy() invoking beforeDestroy twice. */
 	static #destroying = new WeakSet<SprinculModel>();
+	/** Teardowns waiting on an async beforeDestroy, so a repeat call can wait for the same one. */
+	static #teardowns = new WeakMap<SprinculModel, Promise<void>>();
 	/** Instances with a still-pending async beforeInit. */
 	static #pendingBeforeInit = new WeakSet<SprinculModel>();
 
@@ -52,14 +54,20 @@ export default class Sprincul {
 			}
 			const unsubscribe = Sprincul.#globalStores.get(key)!.listen(callback as (value: any) => void);
 
+			// Detach from the signal too, so subscribing and unsubscribing repeatedly doesn't pile up on it
 			const signal = options?.signal;
-			if (signal?.aborted) {
+			const stop = () => {
+				signal?.removeEventListener("abort", stop);
 				unsubscribe();
+			};
+
+			if (signal?.aborted) {
+				stop();
 			} else {
-				signal?.addEventListener("abort", unsubscribe, { once: true });
+				signal?.addEventListener("abort", stop, { once: true });
 			}
 
-			return unsubscribe;
+			return stop;
 		},
 		clear(): void {
 			Sprincul.#globalStores.clear();
@@ -159,7 +167,14 @@ export default class Sprincul {
 			return null;
 		}
 
-		if (Sprincul.#processedElements.has(element)) return null;
+		if (Sprincul.#processedElements.has(element)) {
+			if (devMode && Sprincul.#tearingDown(element)) {
+				console.warn(
+					`[Sprincul] Skipped "${modelName}": the model on this element is still running an async beforeDestroy(). Await unmount() or unmountAll() before mounting it again.`,
+				);
+			}
+			return null;
+		}
 		Sprincul.#processedElements.add(element);
 
 		// Create user's model instance, then link internal core instance
@@ -307,14 +322,15 @@ export default class Sprincul {
 	 * Unmount a model instance from a specific element
 	 * @param element - The HTML element to unmount from
 	 * @param modelName - Optional model name to target specific instance
+	 * @returns A promise that resolves once its `beforeDestroy()` has settled and teardown is complete
 	 */
-	static unmount(element: HTMLElement, modelName?: string): void {
+	static unmount(element: HTMLElement, modelName?: string): Promise<void> {
 		const name = modelName || element.dataset.model;
 		if (!name) {
 			console.warn("[Sprincul] unmount() called on element without a model.");
-			return;
+			return Promise.resolve();
 		}
-		Sprincul.destroy(name, element);
+		return Sprincul.destroy(name, element);
 	}
 
 	/**
@@ -323,16 +339,14 @@ export default class Sprincul {
 	 *
 	 * @param modelName
 	 * @param element
+	 * @returns A promise that resolves once every `beforeDestroy()` has settled and teardown is complete
 	 */
-	static destroy(modelName: string, element?: HTMLElement): void {
+	static destroy(modelName: string, element?: HTMLElement): Promise<void> {
 		const instances = Sprincul.#instancesByName.get(modelName);
 
 		if (element) {
 			const target = Array.from(instances ?? []).find((instance) => instance.$el === element);
-			if (target) {
-				Sprincul.#destroyInstance(target);
-				return;
-			}
+			if (target) return Sprincul.#destroyInOrder([target]);
 
 			// Warn only when the element is actually mounted under a different name: destroying an
 			// already-destroyed element is a legitimate idempotent call
@@ -341,50 +355,68 @@ export default class Sprincul {
 					`[Sprincul] destroy("${modelName}") found no instance on an element mounted as "${element.dataset.model}".`,
 				);
 			}
-			return;
+			return Promise.resolve();
 		}
 
-		if (!instances || instances.size === 0) return;
-
-		Array.from(instances).forEach((instance) => {
-			Sprincul.#destroyInstance(instance);
-		});
+		return Sprincul.#destroyInOrder(
+			Array.from(instances ?? []).sort((a, b) => Sprincul.#documentOrder(a.$el, b.$el)),
+		);
 	}
 
 	/**
-	 * Get the model instance mounted on an element.
-	 *
-	 * @param element - A model's root element
-	 * @returns The live instance, or null if none is mounted there (or it is being torn down)
-	 */
-	static instanceFor<T extends SprinculModel = SprinculModel>(element: Element | null | undefined): T | null {
-		if (!element) return null;
-		return (getInstance(element as HTMLElement) as T | undefined) ?? null;
-	}
-
-	/**
-	 * Destroy every model mounted on `root` or inside it, parents before children, so a parent's
-	 * `beforeDestroy()` can still reach its nested models.
+	 * Destroy every model mounted on `root` or inside it, parents before children. A parent's
+	 * `beforeDestroy()` settles before its nested models are torn down, so it can still reach them.
 	 *
 	 * @param root - The element whose subtree to tear down
+	 * @returns A promise that resolves once every `beforeDestroy()` has settled and teardown is complete
 	 */
-	static unmountAll(root: HTMLElement): void {
+	static unmountAll(root: HTMLElement): Promise<void> {
 		const elements = [root, ...Array.from(root.querySelectorAll<HTMLElement>("[data-model]"))];
+		const models = elements.map((element) => getInstance(element)).filter((model) => model !== undefined);
 
-		elements.forEach((element) => {
-			const model = getInstance(element);
-			if (model) Sprincul.#destroyInstance(model);
-		});
+		return Sprincul.#destroyInOrder(models as SprinculModel[]);
 	}
 
-	/** Destroy every live model, parents before children. */
-	static destroyAll(): void {
+	/**
+	 * Destroy every live model, parents before children, the same way as `unmountAll()`.
+	 *
+	 * @returns A promise that resolves once every `beforeDestroy()` has settled and teardown is complete
+	 */
+	static destroyAll(): Promise<void> {
 		const models: SprinculModel[] = [];
 		Sprincul.#instancesByName.forEach((instances) => models.push(...instances));
 
-		models
-			.sort((a, b) => Sprincul.#documentOrder(a.$el, b.$el))
-			.forEach((model) => Sprincul.#destroyInstance(model));
+		return Sprincul.#destroyInOrder(models.sort((a, b) => Sprincul.#documentOrder(a.$el, b.$el)));
+	}
+
+	/**
+	 * Destroys `models` (in document order) so that each waits only for its own ancestors' async
+	 * `beforeDestroy()`. With no async hooks, everything is torn down before this returns.
+	 */
+	static #destroyInOrder(models: SprinculModel[]): Promise<void> {
+		const pending = new Map<SprinculModel, Promise<void>>();
+
+		models.forEach((model) => {
+			const ancestors: Promise<void>[] = [];
+			pending.forEach((teardown, other) => {
+				if (other.$el.contains(model.$el)) ancestors.push(teardown);
+			});
+
+			const teardown =
+				ancestors.length === 0
+					? Sprincul.#destroyInstance(model)
+					: Promise.all(ancestors).then(() => Sprincul.#destroyInstance(model));
+			if (teardown) pending.set(model, teardown);
+		});
+
+		return Promise.all(pending.values()).then(() => undefined);
+	}
+
+	/** True while the model on `element` is waiting on an async beforeDestroy. */
+	static #tearingDown(element: HTMLElement): boolean {
+		const models: SprinculModel[] = [];
+		Sprincul.#instancesByName.forEach((instances) => models.push(...instances));
+		return models.some((model) => model.$el === element && Sprincul.#teardowns.has(model));
 	}
 
 	/** Sort comparator for document order (an ancestor comes before its descendants). */
@@ -392,8 +424,9 @@ export default class Sprincul {
 		return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
 	}
 
-	static #destroyInstance(model: SprinculModel): void {
-		if (Sprincul.#destroying.has(model)) return;
+	/** Returns a promise only when beforeDestroy is async; a sync teardown is finished on return. */
+	static #destroyInstance(model: SprinculModel): Promise<void> | undefined {
+		if (Sprincul.#destroying.has(model)) return Sprincul.#teardowns.get(model);
 		Sprincul.#destroying.add(model);
 		// Stop handing it out the moment teardown starts
 		deleteInstance(model);
@@ -407,13 +440,19 @@ export default class Sprincul {
 			console.error('Error in "beforeDestroy" hook call:', e);
 		}
 
-		if (beforeDestroyResult instanceof Promise) {
-			beforeDestroyResult
-				.catch((e) => console.error('Error in "beforeDestroy" hook call:', e))
-				.finally(() => Sprincul.#finishDestroy(model));
-		} else {
+		if (!(beforeDestroyResult instanceof Promise)) {
 			Sprincul.#finishDestroy(model);
+			return undefined;
 		}
+
+		const teardown = beforeDestroyResult
+			.catch((e) => console.error('Error in "beforeDestroy" hook call:', e))
+			.then(() => {
+				Sprincul.#teardowns.delete(model);
+				Sprincul.#finishDestroy(model);
+			});
+		Sprincul.#teardowns.set(model, teardown);
+		return teardown;
 	}
 
 	static #finishDestroy(model: SprinculModel): void {

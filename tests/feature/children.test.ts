@@ -1,12 +1,18 @@
 /// <reference lib="dom" />
 import { expect, test, describe } from "bun:test";
-import { html } from "../helpers.ts";
+import { html, initInstances } from "../helpers.ts";
 
-describe("Sprincul - Reaching nested models", () => {
+describe("Sprincul - Reaching nested and parent models", () => {
 	function mountEditor() {
-		class Editor extends SprinculModel {}
+		class Editor extends SprinculModel {
+			title = "Home page";
+		}
 		class Stack extends SprinculModel {
 			isDirty = true;
+
+			editorTitle() {
+				return this.$parent<Editor>()?.title;
+			}
 		}
 		Sprincul.registerAll({ Editor, Stack });
 
@@ -15,38 +21,58 @@ describe("Sprincul - Reaching nested models", () => {
 			<div data-model="Stack" data-ref="stack" data-zone="footer"></div>
 			<span data-ref="plain"></span>
 		</div>`;
-		Sprincul.init({ root: container });
 
-		const editorEl = container.querySelector('[data-model="Editor"]') as HTMLElement;
-		return { editor: Sprincul.instanceFor(editorEl), stacks: container.querySelectorAll('[data-model="Stack"]') };
+		const instances = initInstances(container);
+		const stacks = Array.from(container.querySelectorAll('[data-model="Stack"]'));
+		return {
+			editor: instances.get(container.querySelector('[data-model="Editor"]')!),
+			stacks: stacks.map((element) => instances.get(element)),
+			stackElements: stacks as HTMLElement[],
+		};
 	}
-
-	test("instanceFor returns the model mounted on an element, or null", () => {
-		const { editor, stacks } = mountEditor();
-
-		expect(editor).not.toBeNull();
-		expect(Sprincul.instanceFor(stacks[0]).isDirty).toBe(true);
-		expect(Sprincul.instanceFor(container)).toBeNull();
-		expect(Sprincul.instanceFor(null)).toBeNull();
-	});
 
 	test("$child and $children reach nested models through refs on their roots", () => {
 		const { editor, stacks } = mountEditor();
 
-		expect(editor.$child("stack")).toBe(Sprincul.instanceFor(stacks[0]));
-		expect(editor.$children("stack").map((stack: any) => stack.$el.dataset.zone)).toEqual(["header", "footer"]);
+		expect(editor.$child("stack")).toBe(stacks[0]);
+		expect(editor.$child("stack").isDirty).toBe(true);
+		expect(editor.$children("stack")).toEqual(stacks);
 		// A ref with no model mounted on it isn't a child
 		expect(editor.$child("plain")).toBeNull();
 		expect(editor.$child("missing")).toBeNull();
 	});
 
 	test("an unmounted child is no longer returned", () => {
+		const { editor, stacks, stackElements } = mountEditor();
+
+		Sprincul.unmount(stackElements[0]);
+
+		expect(editor.$child("stack")).toBeNull();
+		expect(editor.$children("stack")).toEqual([stacks[1]]);
+	});
+
+	test("$parent reaches the model containing this one", () => {
 		const { editor, stacks } = mountEditor();
 
-		Sprincul.unmount(stacks[0] as HTMLElement);
+		expect(stacks[0].$parent()).toBe(editor);
+		expect(stacks[1].editorTitle()).toBe("Home page");
+		expect(editor.$parent()).toBeNull();
+	});
 
-		expect(Sprincul.instanceFor(stacks[0])).toBeNull();
-		expect(editor.$child("stack")).toBeNull();
-		expect(editor.$children("stack").map((stack: any) => stack.$el.dataset.zone)).toEqual(["footer"]);
+	test("$parent is null in a child's init hooks on the first init(), since children mount first", () => {
+		let parentDuringInit: unknown = "unset";
+
+		class Parent extends SprinculModel {}
+		class Child extends SprinculModel {
+			afterInit() {
+				parentDuringInit = this.$parent();
+			}
+		}
+		Sprincul.registerAll({ Parent, Child });
+		container.innerHTML = html`<div data-model="Parent"><div data-model="Child"></div></div>`;
+
+		initInstances(container);
+
+		expect(parentDuringInit).toBeNull();
 	});
 });
