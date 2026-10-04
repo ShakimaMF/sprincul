@@ -183,6 +183,7 @@ describe("Sprincul - Model events", () => {
 		Sprincul.unmount(el);
 
 		expect(instance.$signal.aborted).toBe(true);
+		expect(instance.$signal).toBe(instance.$signal);
 	});
 
 	test("calling a store unsubscribe twice doesn't drop another subscription sharing its callback", () => {

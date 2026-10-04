@@ -34,20 +34,23 @@ export function deleteInstance(model: SprinculModel): void {
 	if (instances.get(model.$el) === model) instances.delete(model.$el);
 }
 
-/** model -> the controller behind its $signal, aborted once teardown finishes. */
+/** model -> the controller behind its $signal, created on first read and aborted once teardown finishes. */
 const controllers = new WeakMap<SprinculModel, AbortController>();
+/** Torn-down models whose $signal was never read; one read later is created already aborted. */
+const abortedUnread = new WeakSet<SprinculModel>();
 
 export function getSignal(model: SprinculModel): AbortSignal {
 	let controller = controllers.get(model);
 	if (!controller) {
 		controller = new AbortController();
 		controllers.set(model, controller);
+		if (abortedUnread.has(model)) controller.abort();
 	}
 	return controller.signal;
 }
 
 export function abortSignal(model: SprinculModel): void {
-	// Create it aborted if it was never read, so a $signal read after teardown is already aborted
-	getSignal(model);
-	controllers.get(model)!.abort();
+	const controller = controllers.get(model);
+	if (controller) return controller.abort();
+	abortedUnread.add(model);
 }
