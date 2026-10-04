@@ -66,7 +66,14 @@ try {
 	await page.exposeFunction("__report", (result: Result) => {
 		if (result.error) return console.log(columns([result.name, "FAILED"]) + `\n  ${result.error}`);
 		console.log(
-			columns([result.name, time(result.median), time(result.p95), time(result.min), String(result.samples)]),
+			columns([
+				result.name,
+				time(result.median),
+				time(result.p95),
+				time(result.min),
+				time(result.withLayout),
+				String(result.samples),
+			]),
 		);
 	});
 
@@ -79,7 +86,8 @@ try {
 	);
 	console.log(`bundle ${kb(library.length)} min, ${kb(Bun.gzipSync(library).length)} gzip`);
 	if (!isolated) console.log("warning: page is not cross-origin isolated, timers are coarse (100µs)");
-	console.log(`\n${columns(["scenario", "median", "p95", "min", "samples"])}`);
+	console.log("times are Sprincul's own work; + layout is the median including the browser's layout afterward");
+	console.log(`\n${columns(["scenario", "median", "p95", "min", "+ layout", "samples"])}`);
 
 	const { results, memory } = await page.evaluate((text) => window.runBenchmarks(text), filter);
 	if (memory) printMemory(memory);

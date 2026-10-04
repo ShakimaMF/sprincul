@@ -3,7 +3,16 @@ import { Sprincul, SprinculModel } from "../src/index.ts";
 
 /** Runs in the browser page served by run.ts. */
 
-export type Result = { name: string; samples: number; median: number; p95: number; min: number; error?: string };
+/** Times are Sprincul's own work; `withLayout` is the median including the browser's layout of what it changed. */
+export type Result = {
+	name: string;
+	samples: number;
+	median: number;
+	p95: number;
+	min: number;
+	withLayout: number;
+	error?: string;
+};
 export type MemoryResult = {
 	models: number;
 	cycles: number;
@@ -17,8 +26,8 @@ type Scenario<C> = {
 	name: string;
 	samples: number;
 	setup?: () => C | Promise<C>;
-	/** Measures one sample and returns its duration in ms; anything outside the timed helpers is untimed. */
-	sample: (context: C) => number | Promise<number>;
+	/** Measures one sample with the timed helpers; anything outside them is untimed. */
+	sample: (context: C) => Timing | Promise<Timing>;
 	teardown?: (context: C) => void | Promise<void>;
 };
 
@@ -119,15 +128,27 @@ const rowMarkup = (children = "") =>
 	`<button onclick="increment">+</button>${children}</div>`;
 const rows = (count: number) => rowMarkup().repeat(count);
 
-/** Forces style recalculation and layout, so the cost of DOM writes lands inside the measurement. */
+/** Forces style recalculation and layout of what the timed step changed. */
 const layout = () => document.body.getBoundingClientRect();
 const nextFrame = () => new Promise((resolve) => requestAnimationFrame(resolve));
 
-function timeSync(work: () => void): number {
+/*
+ * Sprincul's own work (its JS and the DOM calls it makes) is timed apart from the browser's layout afterward,
+ * which depends on the page and the browser's state more than on Sprincul.
+ */
+type Timing = { sprincul: number; layout: number };
+
+function timeLayout(): number {
 	const start = performance.now();
-	work();
 	layout();
 	return performance.now() - start;
+}
+
+function timeSync(work: () => void): Timing {
+	const start = performance.now();
+	work();
+	const sprincul = performance.now() - start;
+	return { sprincul, layout: timeLayout() };
 }
 
 /*
@@ -135,7 +156,7 @@ function timeSync(work: () => void): number {
  * Frame callbacks run in request order, so the first marks the frame's start before Sprincul's
  * flush and the last runs right after it.
  */
-function timeFlush(write: () => void): Promise<number> {
+function timeFlush(write: () => void): Promise<Timing> {
 	return new Promise((resolve) => {
 		let frameStart = 0;
 		requestAnimationFrame(() => (frameStart = performance.now()));
@@ -145,8 +166,8 @@ function timeFlush(write: () => void): Promise<number> {
 		const writing = performance.now() - writeStart;
 
 		requestAnimationFrame(() => {
-			layout();
-			resolve(writing + performance.now() - frameStart);
+			const sprincul = writing + performance.now() - frameStart;
+			resolve({ sprincul, layout: timeLayout() });
 		});
 	});
 }
@@ -168,7 +189,7 @@ function mounted(markup: string): HTMLElement {
 }
 
 async function release(root: HTMLElement) {
-	await Sprincul.unmountAll(root);
+	await Sprincul.unmount(root);
 	root.remove();
 }
 
@@ -190,16 +211,37 @@ function expectEqual(actual: unknown, expected: unknown, what: string) {
 
 const scenario = <C>(definition: Scenario<C>) => definition as Scenario<unknown>;
 
+/** Times one way of tearing down 1,000 mounted rows, checking it tore down exactly the `expected` ones. */
+const teardown = (
+	name: string,
+	run: (root: HTMLElement, models: Row[]) => unknown,
+	expected = (models: Row[]) => models,
+) =>
+	scenario({
+		name,
+		samples: 20,
+		sample: async () => {
+			const root = mounted(rows(1000));
+			const models = modelsIn<Row>(root, "[data-model]");
+			const timing = timeSync(() => void run(root, models));
+			const torn = new Set(expected(models));
+			const wrong = models.filter((model) => model.$signal.aborted !== torn.has(model)).length;
+			expectEqual(wrong, 0, "models torn down incorrectly");
+			await release(root);
+			return timing;
+		},
+	});
+
 const scenarios = [
 	scenario({
 		name: "init: 100 rows",
 		samples: 50,
 		sample: async () => {
 			const root = attach(rows(100));
-			const ms = timeSync(() => Sprincul.init({ root }));
+			const timing = timeSync(() => Sprincul.init({ root }));
 			expectAll(root, "[data-bind-count]", "0");
 			await release(root);
-			return ms;
+			return timing;
 		},
 	}),
 	scenario({
@@ -207,10 +249,10 @@ const scenarios = [
 		samples: 20,
 		sample: async () => {
 			const root = attach(rows(1000));
-			const ms = timeSync(() => Sprincul.init({ root }));
+			const timing = timeSync(() => Sprincul.init({ root }));
 			expectAll(root, "[data-bind-count]", "0");
 			await release(root);
-			return ms;
+			return timing;
 		},
 	}),
 	scenario({
@@ -218,24 +260,20 @@ const scenarios = [
 		samples: 20,
 		sample: async () => {
 			const root = attach(rowMarkup(rows(100)).repeat(10));
-			const ms = timeSync(() => Sprincul.init({ root }));
+			const timing = timeSync(() => Sprincul.init({ root }));
 			expectAll(root, "[data-bind-count]", "0");
 			await release(root);
-			return ms;
+			return timing;
 		},
 	}),
-	scenario({
-		name: "unmountAll: 1,000 rows",
-		samples: 20,
-		sample: async () => {
-			const root = mounted(rows(1000));
-			const models = modelsIn<Row>(root, "[data-model]");
-			const ms = timeSync(() => void Sprincul.unmountAll(root));
-			expectEqual(models.filter((model) => !model.$signal.aborted).length, 0, "models still mounted");
-			root.remove();
-			return ms;
-		},
-	}),
+	teardown(
+		"unmount: 1 of 1,000 rows",
+		(_, models) => Sprincul.unmount(models[500]!.$el),
+		(models) => [models[500]!],
+	),
+	teardown("unmount: subtree of 1,000 rows", (root) => Sprincul.unmount(root)),
+	teardown("destroy: 1,000 rows by name", () => Sprincul.destroy("Row")),
+	teardown("destroyAll: 1,000 rows", () => Sprincul.destroyAll()),
 	scenario({
 		name: "update: 1 of 1,000 rows",
 		samples: 100,
@@ -246,9 +284,9 @@ const scenarios = [
 		sample: async ({ models }) => {
 			const model = models[Math.floor(Math.random() * models.length)]!;
 			const next = model.state.count + 1;
-			const ms = await timeFlush(() => (model.state.count = next));
+			const timing = await timeFlush(() => (model.state.count = next));
 			expectEqual(model.$el.querySelector("[data-bind-count]")!.textContent, String(next), "row text");
-			return ms;
+			return timing;
 		},
 		teardown: ({ root }) => release(root),
 	}),
@@ -261,9 +299,9 @@ const scenarios = [
 		},
 		sample: async (context) => {
 			const next = ++context.count;
-			const ms = await timeFlush(() => context.models.forEach((model) => (model.state.count = next)));
+			const timing = await timeFlush(() => context.models.forEach((model) => (model.state.count = next)));
 			expectAll(context.root, "[data-bind-count]", String(next));
-			return ms;
+			return timing;
 		},
 		teardown: ({ root }) => release(root),
 	}),
@@ -275,11 +313,11 @@ const scenarios = [
 			return { root, model: modelsIn<Row>(root, "[data-model]")[0]! };
 		},
 		sample: async ({ root, model }) => {
-			const ms = await timeFlush(() => {
+			const timing = await timeFlush(() => {
 				for (let i = 0; i < 10; i++) model.state.count++;
 			});
 			expectAll(root, "[data-bind-count]", String(model.state.count));
-			return ms;
+			return timing;
 		},
 		teardown: ({ root }) => release(root),
 	}),
@@ -294,9 +332,9 @@ const scenarios = [
 			const button = buttons[Math.floor(Math.random() * buttons.length)]!;
 			const span = button.parentElement!.querySelector("[data-bind-count]")!;
 			const next = String(Number(span.textContent) + 1);
-			const ms = await timeFlush(() => button.click());
+			const timing = await timeFlush(() => button.click());
 			expectEqual(span.textContent, next, "clicked row text");
-			return ms;
+			return timing;
 		},
 		teardown: ({ root }) => release(root),
 	}),
@@ -310,7 +348,7 @@ const scenarios = [
 		},
 		sample: async (context) => {
 			const price = ++context.price;
-			const ms = await timeFlush(() =>
+			const timing = await timeFlush(() =>
 				context.models.forEach((model) => {
 					model.state.price = price;
 					model.state.qty = 3;
@@ -318,7 +356,7 @@ const scenarios = [
 			);
 			expectAll(context.root, "[data-bind-subtotal]", String(price * 3));
 			expectAll(context.root, "[data-bind-total]", String(price * 6));
-			return ms;
+			return timing;
 		},
 		teardown: ({ root }) => release(root),
 	}),
@@ -331,9 +369,9 @@ const scenarios = [
 		}),
 		sample: async (context) => {
 			const theme = `theme-${++context.round}`;
-			const ms = await timeFlush(() => Sprincul.store.set("theme", theme));
+			const timing = await timeFlush(() => Sprincul.store.set("theme", theme));
 			expectAll(context.root, "[data-bind-theme]", theme);
-			return ms;
+			return timing;
 		},
 		teardown: ({ root }) => release(root),
 	}),
@@ -351,14 +389,14 @@ const scenarios = [
 				li.setAttribute("onclick", "increment");
 				return li;
 			});
-			const ms = timeSync(() => {
+			const timing = timeSync(() => {
 				list.append(...items);
 				model.wire(list);
 			});
 			expectAll(root, "li", String(model.state.count));
 			model.unwire(list);
 			list.replaceChildren();
-			return ms;
+			return timing;
 		},
 		teardown: ({ root }) => release(root),
 	}),
@@ -375,11 +413,11 @@ const scenarios = [
 		},
 		sample: ({ parent, child }) => {
 			const before = parent.received;
-			const ms = timeSync(() => {
+			const timing = timeSync(() => {
 				for (let i = 0; i < 1000; i++) child.ping();
 			});
 			expectEqual(parent.received - before, 1000, "events received");
-			return ms;
+			return timing;
 		},
 		teardown: ({ root }) => release(root),
 	}),
@@ -388,21 +426,31 @@ const scenarios = [
 async function run(definition: Scenario<unknown>): Promise<Result> {
 	const context = await definition.setup?.();
 	const durations: number[] = [];
+	const totals: number[] = [];
 	try {
 		const warmup = Math.min(5, definition.samples);
 		for (let i = 0; i < warmup + definition.samples; i++) {
-			const ms = await definition.sample(context);
-			if (i >= warmup) durations.push(ms);
+			const timing = await definition.sample(context);
+			if (i >= warmup) {
+				durations.push(timing.sprincul);
+				totals.push(timing.sprincul + timing.layout);
+			}
 			await nextFrame();
 		}
 	} finally {
 		await definition.teardown?.(context);
 	}
 
-	durations.sort((a, b) => a - b);
-	const at = (quantile: number) =>
-		durations[Math.min(durations.length - 1, Math.floor(quantile * durations.length))]!;
-	return { name: definition.name, samples: durations.length, median: at(0.5), p95: at(0.95), min: durations[0]! };
+	const at = (values: number[], quantile: number) =>
+		values.sort((a, b) => a - b)[Math.min(values.length - 1, Math.floor(quantile * values.length))]!;
+	return {
+		name: definition.name,
+		samples: durations.length,
+		median: at(durations, 0.5),
+		p95: at(durations, 0.95),
+		min: at(durations, 0),
+		withLayout: at(totals, 0.5),
+	};
 }
 
 /*
@@ -414,7 +462,7 @@ async function measureMemory(models: number, cycles: number): Promise<MemoryResu
 	const root = attach(rows(models));
 	const elements = Array.from(root.querySelectorAll("*"));
 	const unmount = async () => {
-		await Sprincul.unmountAll(root);
+		await Sprincul.unmount(root);
 		// The bench's own tracking would otherwise keep every model alive with its element
 		elements.forEach((element) => instances.delete(element));
 	};
@@ -455,7 +503,15 @@ window.runBenchmarks = async (filter) => {
 		try {
 			result = await run(definition);
 		} catch (error) {
-			result = { name: definition.name, samples: 0, median: 0, p95: 0, min: 0, error: String(error) };
+			result = {
+				name: definition.name,
+				samples: 0,
+				median: 0,
+				p95: 0,
+				min: 0,
+				withLayout: 0,
+				error: String(error),
+			};
 		}
 		results.push(result);
 		await window.__report(result);
