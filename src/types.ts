@@ -30,11 +30,7 @@ export type BoundElementInput = {
 	selectedValues: string[] | undefined;
 };
 
-export type BoundElementDefault = {
-	input: BoundElementInput;
-	text: string;
-	html: string;
-};
+export type BoundElementDefault = { input: BoundElementInput; text: string; html: string };
 
 /**
  * Server-rendered input/text/html per bound state property (data-bind-<prop>).
@@ -42,16 +38,19 @@ export type BoundElementDefault = {
  */
 export type BoundDefaults = Record<string, BoundElementDefault>;
 
+/** What `$data()` returns for a fallback of type `T`: literal fallbacks widen to their primitive type. */
+export type DataValue<T> = T extends number ? number : T extends boolean ? boolean : T extends string ? string : T;
+
 /**
  * Options accepted by `init()`.
  *
  * - `devMode`: Include the model instance in `onReady` payloads and log dev-only warnings. Default `false`.
- * - `root`: Element to scope this scan to, instead of the whole page. Default `document.body`.
+ * - `root`: Element (or `DocumentFragment`) to scope this scan to, instead of the whole page. Default `document.body`.
  * - `onReady`: Called once every model scanned is wired up, and init callbacks (`beforeInit`/`afterInit`) are called.
  */
 export type SprinculInitOptions = {
 	devMode?: boolean;
-	root?: HTMLElement;
+	root?: HTMLElement | DocumentFragment;
 	onReady?: (models: SprinculModelInfo[]) => void;
 };
 

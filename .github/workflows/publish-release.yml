@@ -1,11 +1,8 @@
 name: Publish Release
 
 on:
+  # Releases the version in main's package.json, tagged v<version>
   workflow_dispatch:
-    inputs:
-      tag:
-        description: "Version tag to create on the release branch (e.g. v0.3.0)"
-        required: true
   # Uncomment to trigger automatically whenever a version tag is pushed to main:
   # push:
   #   tags:
@@ -32,10 +29,16 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      # Pin the checked-out commit so the tag and the release tree come from the same source
+      - name: Read the release tag from package.json
+        run: |
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "TAG=v$(bun -p 'require("./package.json").version')" >> "$GITHUB_ENV"
+
       - name: Fail fast if this tag already exists
         run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/${{ inputs.tag }}" >/dev/null 2>&1; then
-            echo "::error::Tag ${{ inputs.tag }} already exists. Choose a new tag; tags are never moved."
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $TAG already exists. Bump the version in package.json; tags are never moved."
             exit 1
           fi
 
@@ -43,10 +46,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          git fetch origin main
-          SOURCE_SHA=$(git rev-parse FETCH_HEAD)
-          echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
 
           if git ls-remote --exit-code --heads origin release >/dev/null 2>&1; then
             git fetch origin release
@@ -67,8 +66,8 @@ jobs:
       - name: Commit and push the release
         run: |
           git add -f dist/
-          git commit -m "release: ${{ inputs.tag }}"
+          git commit -m "release: $TAG"
 
           git push origin release
-          git tag "${{ inputs.tag }}"
-          git push origin "refs/tags/${{ inputs.tag }}"
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG"

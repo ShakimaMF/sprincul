@@ -5,7 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.0] - 2026-10-04
+
+### Added
+
+- Add `data-ref` with `$ref()` / `$refs()` for reading elements within a model. See [Refs](https://github.com/ShakimaMF/sprincul/wiki/Refs).
+- Add `$data(name, fallback)` for reading typed config from a model root's data attributes. See [Model Data](https://github.com/ShakimaMF/sprincul/wiki/Model-Data).
+- Add `$child()` / `$children()` and `$parent()` for reaching nested and parent models. See [Refs](https://github.com/ShakimaMF/sprincul/wiki/Refs#reaching-nested-and-parent-models).
+- Add `$emit()`, `$listen()`, and `$signal` for events between models and cleanup on destroy, and a `signal` option on `Sprincul.store.subscribe()`. See [Model Events](https://github.com/ShakimaMF/sprincul/wiki/Model-Events).
+- `wire()` and `init({ root })` take a `DocumentFragment` or detached element, so content can be bound before it's appended. See [Wiring Dynamic Content](https://github.com/ShakimaMF/sprincul/wiki/Wiring-Dynamic-Content#wiring-before-appending).
+- Export the `BoundDefaults`, `BoundElementDefault`, `BoundElementInput`, `SprinculInitOptions`, and `SprinculMountOptions` types.
+- Add a product listing example with a side cart in `examples/`, run with `bun run example`.
+
+### Changed
+
+- **Breaking:** `data-bind-*` names follow the `dataset` rule: `data-bind-button-text` binds `state.buttonText` (and `defaults.buttonText`) instead of `state["button-text"]`. See [Data Bindings](https://github.com/ShakimaMF/sprincul/wiki/Data-Bindings).
+- `init()` mounts nested models before the models containing them, so a parent's `afterInit()` finds its children mounted. In `destroyAll()`, a parent's `beforeDestroy()` (including an async one) now settles before its children are torn down.
+- **Breaking:** `unmount(el)` also tears down every model inside `el` and works on an element without a model of its own (the reverse of `init({ root })`). See [Mounting and Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting).
+- `unmount()`, `destroy()`, and `destroyAll()` return a promise that resolves once every `beforeDestroy()` has settled. A model whose teardown fails is logged and doesn't stop the rest.
+- `registerAll()` skips values that aren't `SprinculModel` classes, with a warning.
+
+### Deprecated
+
+- Second parameter of `unmount(el, modelName)` and `destroy(modelName, el)`: use `unmount(el)` and `destroy(modelName)` instead. Both still work for now and warn once.
+
+### Fixed
+
+- Fix `registerAll()` rejecting a module namespace (`import * as models`) or an interface-typed object in TypeScript.
+
+## [0.3.0] - 2026-09-24
 
 ### Added
 
@@ -77,6 +105,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Initial release._
 
+[0.4.0]: https://github.com/ShakimaMF/sprincul/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ShakimaMF/sprincul/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/ShakimaMF/sprincul/compare/v0.1.0...v0.2.1
 [0.1.0]: https://github.com/ShakimaMF/sprincul/compare/v0.0.2...v0.1.0

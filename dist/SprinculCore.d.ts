@@ -12,7 +12,7 @@ export declare class SprinculCore {
     constructor(instance: SprinculModel, devMode?: boolean);
     static createStateProxy(stateStore: MapStore<Record<string, any>>, getCoreRef: () => SprinculCore | undefined): Record<string, any>;
     setupBindings(container: HTMLElement): BoundDefaults;
-    processAddedElement(element: HTMLElement): void;
+    processAddedElement(content: HTMLElement | DocumentFragment): void;
     /**
      * Reverses wire() for `element` and its descendants. Call before discarding a wired subtree.
      */
@@ -29,4 +29,6 @@ export declare class SprinculCore {
     registerComputedFromModel(key: string, fn: () => any, dependencies: string[], stateStore: MapStore<Record<string, any>>): (() => void) | void;
     scheduleUpdate(key: string): void;
     destroy(): void;
+    /** Dev-mode warning on behalf of the model. */
+    warn(message: string): void;
 }

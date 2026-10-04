@@ -1,5 +1,5 @@
 /// <reference lib="dom" />
-import { expect, test, describe } from "bun:test";
+import { expect, test, describe, spyOn } from "bun:test";
 import { html, waitForDomUpdate } from "../helpers.ts";
 
 describe("Sprincul - Wiring Dynamic Content", () => {
@@ -430,7 +430,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 					return result;
 				},
 			} as IterableIterator<T>;
-		};
+		} as typeof originalIterator;
 
 		const wireRows = (rows: number) => {
 			const el = document.createElement("div");
@@ -478,5 +478,165 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		expect(() => model.wire(document.createElement("span"))).toThrow(
 			"[Sprincul] wire() called before core was available. Call it from beforeInit() or later instead.",
 		);
+	});
+
+	describe("content not appended yet", () => {
+		function mountList() {
+			const calls: string[] = [];
+
+			class ListModel extends SprinculModel {
+				beforeInit() {
+					this.state.qty = 1;
+				}
+
+				showQty(el: HTMLElement) {
+					calls.push(`render:${el.dataset.label}`);
+					el.textContent = String(this.state.qty);
+				}
+
+				bump() {
+					calls.push("click");
+				}
+			}
+
+			const el = document.createElement("div");
+			el.innerHTML = html`<ul></ul>`;
+			container.appendChild(el);
+			const instance = Sprincul.mount(el, ListModel) as any;
+			return { instance, list: el.querySelector("ul")!, calls };
+		}
+
+		function row(label: string) {
+			const li = document.createElement("li");
+			li.dataset.label = label;
+			li.setAttribute("data-bind-qty", "showQty");
+			li.setAttribute("onclick", "bump");
+			return li;
+		}
+
+		test("a wired fragment gets its listeners now and its callbacks in the next frame", async () => {
+			const { instance, list, calls } = mountList();
+			const fragment = document.createDocumentFragment();
+			fragment.append(row("a"), row("b"));
+
+			instance.wire(fragment);
+			expect(calls).toEqual([]);
+
+			list.append(fragment);
+			(list.firstElementChild as HTMLElement).click();
+			expect(calls).toEqual(["click"]);
+
+			await waitForDomUpdate();
+			expect(calls).toEqual(["click", "render:a", "render:b"]);
+			expect(list.textContent).toBe("11");
+		});
+
+		test("a wired detached element works the same way", async () => {
+			const { instance, list, calls } = mountList();
+			const li = row("a");
+
+			instance.wire(li);
+			list.append(li);
+			await waitForDomUpdate();
+
+			expect(calls).toEqual(["render:a"]);
+		});
+
+		test("a state change in the same frame renders each element once", async () => {
+			const { instance, list, calls } = mountList();
+			const li = row("a");
+
+			instance.wire(li);
+			list.append(li);
+			instance.state.qty = 5;
+			await waitForDomUpdate();
+
+			expect(calls).toEqual(["render:a"]);
+			expect(li.textContent).toBe("5");
+		});
+
+		test("unwiring or unmounting before the frame cancels its callbacks", async () => {
+			const first = mountList();
+			const unwired = row("a");
+			first.instance.wire(unwired);
+			first.list.append(unwired);
+			first.instance.unwire(unwired);
+
+			const second = mountList();
+			const unmounted = row("b");
+			second.instance.wire(unmounted);
+			Sprincul.unmount(second.instance.$el);
+
+			await waitForDomUpdate();
+			expect(first.calls).toEqual([]);
+			expect(second.calls).toEqual([]);
+		});
+
+		test("a nested model root in the content is left for its own model", async () => {
+			const { instance, list, calls } = mountList();
+			const fragment = document.createDocumentFragment();
+			const nested = document.createElement("div");
+			nested.setAttribute("data-model", "Other");
+			nested.append(row("nested"));
+			fragment.append(row("own"), nested);
+
+			instance.wire(fragment);
+			list.append(fragment);
+			await waitForDomUpdate();
+
+			expect(calls).toEqual(["render:own"]);
+		});
+	});
+
+	test("wire() on content on the page outside the model binds nothing and warns in devMode", () => {
+		const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+		let clicked = false;
+
+		class ListModel extends SprinculModel {
+			bump() {
+				clicked = true;
+			}
+		}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+		const instance = Sprincul.mount(el, ListModel, { devMode: true });
+		const outside = document.createElement("button");
+		outside.setAttribute("onclick", "bump");
+		container.appendChild(outside);
+
+		instance.wire(outside);
+		outside.click();
+
+		expect(clicked).toBe(false);
+		expect(warnSpy).toHaveBeenCalledWith(
+			"[Sprincul] wire() was given content on the page outside this model, so nothing was bound.",
+		);
+		warnSpy.mockRestore();
+	});
+
+	test("init({ root }) mounts the models in a fragment before it's appended", () => {
+		const mounted: string[] = [];
+
+		class Card extends SprinculModel {
+			afterInit() {
+				mounted.push(this.$el.dataset.label!);
+			}
+		}
+		Sprincul.register("Card", Card);
+
+		const fragment = document.createDocumentFragment();
+		["a", "b"].forEach((label) => {
+			const card = document.createElement("div");
+			card.setAttribute("data-model", "Card");
+			card.dataset.label = label;
+			fragment.append(card);
+		});
+
+		Sprincul.init({ root: fragment });
+		container.append(fragment);
+
+		expect(mounted).toEqual(["a", "b"]);
+		expect(container.querySelectorAll('[data-model="Card"]')).toHaveLength(2);
 	});
 });

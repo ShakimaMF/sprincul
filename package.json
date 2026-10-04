@@ -1,6 +1,6 @@
 {
 	"name": "sprincul",
-	"version": "0.3.0",
+	"version": "0.4.0",
 	"description": "A lightweight, browser-side JS framework for adding reactivity to HTML.",
 	"homepage": "https://github.com/ShakimaMF/sprincul",
 	"type": "module",
@@ -26,7 +26,11 @@
 		"watch": "bun build src/index.ts --target=browser --format=esm --outdir=dist --sourcemap=external --watch",
 		"build": "bun run build:js && bun run build:types",
 		"build:js": "bun build src/index.ts --target=browser --format=esm --outdir=dist --sourcemap=external && bun build src/index.ts --target=browser --format=esm --outdir=dist --minify --sourcemap=external --entry-naming [dir]/[name].min.[ext]",
-		"build:types": "tsc",
+		"build:types": "tsc -p tsconfig.build.json",
+		"typecheck": "tsc -p .",
+		"bench": "bun bench/run.ts",
+		"example": "bun examples/serve.ts",
+		"build:demo": "rm -rf _site && mkdir _site && cp -R examples/shop/. _site/ && bun build src/index.ts --target=browser --format=esm --minify --outfile=_site/sprincul.js",
 		"format": "bunx prettier . --write",
 		"format:check": "bunx prettier . --check"
 	},
@@ -42,6 +46,7 @@
 	"devDependencies": {
 		"@types/bun": "^1.4.2",
 		"happy-dom": "^20.14.5",
+		"playwright": "^1.63.0",
 		"prettier": "3.9.8",
 		"typescript": "^7.0.2"
 	},

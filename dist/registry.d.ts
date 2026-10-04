@@ -3,3 +3,8 @@ import type SprinculModel from "./SprinculModel";
 export declare function getCore(model: SprinculModel): SprinculCore | undefined;
 export declare function setCore(model: SprinculModel, core: SprinculCore): void;
 export declare function deleteCore(model: SprinculModel): void;
+export declare function getInstance(element: HTMLElement): SprinculModel | undefined;
+export declare function setInstance(element: HTMLElement, model: SprinculModel): void;
+export declare function deleteInstance(model: SprinculModel): void;
+export declare function getSignal(model: SprinculModel): AbortSignal;
+export declare function abortSignal(model: SprinculModel): void;

@@ -269,6 +269,7 @@ class SprinculCore {
   #pendingUpdates = new Set;
   #updateScheduled = false;
   #pendingInitialCallbacks = [];
+  #frameCallbacks = [];
   #pendingListeners = [];
   #isBrowser;
   constructor(instance, devMode = false) {
@@ -340,8 +341,16 @@ class SprinculCore {
     this.#processTree(container, { defaults, deferCallbacks: true });
     return defaults;
   }
-  processAddedElement(element) {
-    this.#processTree(element, { deferCallbacks: false, viaWire: true });
+  processAddedElement(content) {
+    if (this.instance.$el.contains(content)) {
+      this.#processTree(content, { deferCallbacks: false, viaWire: true });
+      return;
+    }
+    if (content.isConnected) {
+      this.#warn("wire() was given content on the page outside this model, so nothing was bound.");
+      return;
+    }
+    this.#processTree(content, { deferCallbacks: false, deferToFrame: this.#isBrowser, viaWire: true });
   }
   unwireElement(element) {
     const isInScope = (candidate) => element.contains(candidate);
@@ -371,6 +380,7 @@ class SprinculCore {
     });
     this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter((binding) => !isInScope(binding.element));
     this.#pendingListeners = this.#pendingListeners.filter((listener) => !isInScope(listener.element));
+    this.#frameCallbacks = this.#frameCallbacks.filter((binding) => !isInScope(binding.element));
   }
   runQueuedInitialCallbacks() {
     const queuedCallbacks = this.#pendingInitialCallbacks;
@@ -382,20 +392,14 @@ class SprinculCore {
     queuedListeners.forEach(({ element, eventName, methodName }) => this.#attachListener(element, eventName, methodName));
   }
   #processTree(container, options) {
-    const isNestedModelRoot = container.hasAttribute("data-model") && container !== this.instance.$el;
-    const closestModelElement = container.closest("[data-model]");
-    const withinThisModel = container === this.instance.$el || closestModelElement === this.instance.$el;
-    if (!isNestedModelRoot && withinThisModel) {
+    const owner = this.instance.$el.contains(container) ? this.instance.$el : null;
+    const isOwned = (element) => element.closest("[data-model]") === owner;
+    if (container instanceof HTMLElement && isOwned(container)) {
       this.#processElementBindings(container, options);
     }
     container.querySelectorAll("*").forEach((el) => {
-      const element = el;
-      const closest = element.closest("[data-model]");
-      if (element.hasAttribute("data-model") && element !== container)
-        return;
-      if (closest !== this.instance.$el)
-        return;
-      this.#processElementBindings(element, options);
+      if (isOwned(el))
+        this.#processElementBindings(el, options);
     });
   }
   registerComputed(key, computedStore) {
@@ -427,15 +431,24 @@ class SprinculCore {
     if (!this.#isBrowser)
       return;
     this.#pendingUpdates.add(key);
-    if (!this.#updateScheduled) {
-      this.#updateScheduled = true;
-      requestAnimationFrame(() => {
-        const updated = new Map;
-        this.#pendingUpdates.forEach((prop) => this.#updateDependentElements(prop, updated));
-        this.#pendingUpdates.clear();
-        this.#updateScheduled = false;
+    this.#scheduleFrame();
+  }
+  #scheduleFrame() {
+    if (this.#updateScheduled)
+      return;
+    this.#updateScheduled = true;
+    requestAnimationFrame(() => {
+      const updated = new Map;
+      const frameCallbacks = this.#frameCallbacks;
+      this.#frameCallbacks = [];
+      frameCallbacks.forEach((binding) => {
+        if (this.#markUpdated(updated, binding))
+          this.#updateElement(binding);
       });
-    }
+      this.#pendingUpdates.forEach((prop) => this.#updateDependentElements(prop, updated));
+      this.#pendingUpdates.clear();
+      this.#updateScheduled = false;
+    });
   }
   destroy() {
     this.#unsubscribers.forEach((unsubscribe) => unsubscribe());
@@ -450,11 +463,18 @@ class SprinculCore {
     this.#pendingUpdates.clear();
     this.#pendingInitialCallbacks = [];
     this.#pendingListeners = [];
+    this.#frameCallbacks = [];
   }
   #processElementBindings(element, options) {
     Array.from(element.attributes).forEach((attr) => {
+      if (attr.name === "data-ref") {
+        if (/\s/.test(attr.value.trim())) {
+          this.#warn(`data-ref="${attr.value}" contains whitespace; a ref takes a single name.`);
+        }
+        return;
+      }
       if (attr.name.startsWith("data-bind-")) {
-        const propertyName = attr.name.substring("data-bind-".length);
+        const propertyName = attr.name.substring("data-bind-".length).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
         const callbackName = attr.value;
         const alreadyBound = this.#trackBinding(propertyName, element, callbackName, options.viaWire === true);
         if (alreadyBound)
@@ -474,16 +494,22 @@ class SprinculCore {
         }
         const bindFn = Reflect.get(this.instance, callbackName);
         if (typeof bindFn !== "function") {
-          this.#warn(`Binding callback "${callbackName}" not found for data-bind-${propertyName}.`);
+          this.#warn(`Binding callback "${callbackName}" not found for ${attr.name}.`);
           return;
         }
+        const record = {
+          prop: propertyName,
+          element,
+          callback: callbackName,
+          viaWire: options.viaWire === true
+        };
         if (options.deferCallbacks) {
-          this.#pendingInitialCallbacks.push({
-            prop: propertyName,
-            element,
-            callback: callbackName,
-            viaWire: options.viaWire === true
-          });
+          this.#pendingInitialCallbacks.push(record);
+          return;
+        }
+        if (options.deferToFrame) {
+          this.#frameCallbacks.push(record);
+          this.#scheduleFrame();
           return;
         }
         try {
@@ -575,6 +601,9 @@ class SprinculCore {
       }
     }
   }
+  warn(message) {
+    this.#warn(message);
+  }
   #warn(message) {
     if (!this.devMode)
       return;
@@ -593,6 +622,177 @@ function setCore(model, core) {
 function deleteCore(model) {
   cores.delete(model);
 }
+var instances = new WeakMap;
+function getInstance(element) {
+  return instances.get(element);
+}
+function setInstance(element, model) {
+  instances.set(element, model);
+}
+function deleteInstance(model) {
+  if (instances.get(model.$el) === model)
+    instances.delete(model.$el);
+}
+var controllers = new WeakMap;
+var abortedUnread = new WeakSet;
+function getSignal(model) {
+  let controller = controllers.get(model);
+  if (!controller) {
+    controller = new AbortController;
+    controllers.set(model, controller);
+    if (abortedUnread.has(model))
+      controller.abort();
+  }
+  return controller.signal;
+}
+function abortSignal(model) {
+  const controller = controllers.get(model);
+  if (controller)
+    return controller.abort();
+  abortedUnread.add(model);
+}
+
+// src/SprinculModel.ts
+var MALFORMED = Symbol("malformed");
+
+class SprinculModel {
+  $el;
+  #state;
+  state;
+  #core;
+  constructor(element) {
+    this.$el = element;
+    this.#state = map({});
+    this.#state.listen((_, __, changed) => {
+      if (!changed)
+        return;
+      const core = this.#core || getCore(this);
+      if (core) {
+        core.scheduleUpdate(changed);
+      }
+    });
+    this.state = SprinculCore.createStateProxy(this.#state, () => this.#core || getCore(this));
+  }
+  wire(element) {
+    const core = this.#core || getCore(this);
+    if (!core) {
+      throw new Error(`[Sprincul] wire() called before core was available. Call it from beforeInit() or later instead.`);
+    }
+    core.processAddedElement(element);
+  }
+  unwire(element) {
+    const core = this.#core || getCore(this);
+    if (!core) {
+      throw new Error(`[Sprincul] unwire() called before core was available. Call it from beforeInit() or later instead.`);
+    }
+    core.unwireElement(element);
+  }
+  $ref(name) {
+    return this.$refs(name)[0] ?? null;
+  }
+  $refs(name) {
+    if (!name)
+      return [];
+    const matches = Array.from(this.$el.querySelectorAll("[data-ref]")).filter((element) => element.getAttribute("data-ref").trim() === name && SprinculModel.#ownerOf(element) === this.$el);
+    if (matches.length === 0 && this.$el.getAttribute("data-ref")?.trim() === name) {
+      (this.#core || getCore(this))?.warn(`$ref("${name}") matches this model's own root, which is its parent model's ref, not its own.`);
+    }
+    return matches;
+  }
+  $child(name) {
+    const element = this.$ref(name);
+    return element ? getInstance(element) ?? null : null;
+  }
+  $parent() {
+    const element = this.$el.parentElement?.closest("[data-model]");
+    return element ? getInstance(element) ?? null : null;
+  }
+  $children(name) {
+    return this.$refs(name).map((element) => getInstance(element)).filter((instance) => instance !== undefined);
+  }
+  $data(name, fallback) {
+    const raw = this.$el.dataset[name];
+    if (raw === undefined)
+      return fallback;
+    const value = SprinculModel.#parseData(raw, fallback);
+    if (value !== MALFORMED)
+      return value;
+    const attribute = `data-${name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+    (this.#core || getCore(this))?.warn(`${attribute}="${raw}" on model "${this.$el.dataset.model}" can't be read like its fallback; using the fallback.`);
+    return fallback;
+  }
+  static #parseData(raw, fallback) {
+    switch (typeof fallback) {
+      case "number": {
+        const value = Number(raw);
+        return raw.trim() === "" || Number.isNaN(value) ? MALFORMED : value;
+      }
+      case "boolean":
+        if (raw === "" || raw === "true")
+          return true;
+        return raw === "false" ? false : MALFORMED;
+      case "object": {
+        let value;
+        try {
+          value = JSON.parse(raw);
+        } catch {
+          return MALFORMED;
+        }
+        if (fallback === null)
+          return value;
+        if (Array.isArray(fallback))
+          return Array.isArray(value) ? value : MALFORMED;
+        return value !== null && typeof value === "object" && !Array.isArray(value) ? value : MALFORMED;
+      }
+      default:
+        return raw;
+    }
+  }
+  static #ownerOf(element) {
+    const scope = element.hasAttribute("data-model") ? element.parentElement : element;
+    return scope?.closest("[data-model]") ?? null;
+  }
+  get $signal() {
+    return getSignal(this);
+  }
+  $emit(type, detail, options) {
+    if (`on${type}` in this.$el) {
+      (this.#core || getCore(this))?.warn(`$emit("${type}") uses a native event name, so it mixes with the native events bubbling through the same elements.`);
+    }
+    const event = new CustomEvent(type, { bubbles: true, ...options, detail });
+    this.$el.dispatchEvent(event);
+    return event;
+  }
+  $listen(...args) {
+    const [target, type, handler, options] = typeof args[0] === "string" ? [this.$el, args[0], args[1]] : [args[0], args[1], args[2], args[3]];
+    const signals = [this.$signal, options?.signal].filter((signal) => !!signal);
+    const controller = new AbortController;
+    const stop = () => {
+      signals.forEach((signal) => signal.removeEventListener("abort", stop));
+      controller.abort();
+    };
+    if (signals.some((signal) => signal.aborted))
+      return stop;
+    signals.forEach((signal) => signal.addEventListener("abort", stop, { once: true }));
+    target.addEventListener(type, (event) => {
+      if (options?.once)
+        stop();
+      handler.call(this, event);
+    }, { ...options, signal: controller.signal });
+    return stop;
+  }
+  addComputedProp(name, fn, dependencies = []) {
+    if (dependencies.length === 0) {
+      console.warn(`[Sprincul] addComputedProp("${name}") called without dependencies. Bound elements will not re-render when the value changes.`);
+    }
+    const core = this.#core || getCore(this);
+    if (!core) {
+      throw new Error(`[Sprincul] addComputedProp("${name}") called before core was available. Call it from beforeInit() or later instead.`);
+    }
+    const callback = () => Reflect.apply(fn, this, []);
+    return core.registerComputedFromModel(name, callback, dependencies, this.#state) ?? (() => {});
+  }
+}
 
 // src/Sprincul.ts
 class Sprincul {
@@ -603,6 +803,8 @@ class Sprincul {
   static #instancesByName = new Map;
   static #modelNames = new WeakMap;
   static #destroying = new WeakSet;
+  static #teardowns = new WeakMap;
+  static #deprecationsWarned = new Set;
   static #pendingBeforeInit = new WeakSet;
   static store = {
     get(key) {
@@ -615,11 +817,26 @@ class Sprincul {
       }
       Sprincul.#globalStores.get(key).set(value);
     },
-    subscribe(key, callback) {
+    subscribe(key, callback, options) {
       if (!Sprincul.#globalStores.has(key)) {
         Sprincul.#globalStores.set(key, atom());
       }
-      return Sprincul.#globalStores.get(key).listen(callback);
+      const unsubscribe = Sprincul.#globalStores.get(key).listen(callback);
+      const signal = options?.signal;
+      let stopped = false;
+      const stop = () => {
+        if (stopped)
+          return;
+        stopped = true;
+        signal?.removeEventListener("abort", stop);
+        unsubscribe();
+      };
+      if (signal?.aborted) {
+        stop();
+      } else {
+        signal?.addEventListener("abort", stop, { once: true });
+      }
+      return stop;
     },
     clear() {
       Sprincul.#globalStores.clear();
@@ -630,6 +847,10 @@ class Sprincul {
   }
   static registerAll(models) {
     for (const [name, cls] of Object.entries(models)) {
+      if (typeof cls !== "function" || !(cls.prototype instanceof SprinculModel)) {
+        console.warn(`[Sprincul] registerAll() skipped "${name}": it isn't a SprinculModel class.`);
+        continue;
+      }
       Sprincul.#registry.set(name, cls);
     }
   }
@@ -641,8 +862,15 @@ class Sprincul {
     const devMode = options?.devMode ?? false;
     const root = options?.root ?? document.body;
     const modelElements = Array.from(root.querySelectorAll("[data-model]"));
-    if (root.hasAttribute("data-model"))
+    if (root instanceof HTMLElement && root.hasAttribute("data-model"))
       modelElements.unshift(root);
+    modelElements.sort((a, b) => {
+      if (a.contains(b))
+        return 1;
+      if (b.contains(a))
+        return -1;
+      return Sprincul.#documentOrder(a, b);
+    });
     const modelInfos = [];
     modelElements.forEach((element) => {
       try {
@@ -676,8 +904,12 @@ class Sprincul {
       console.warn(`[Sprincul] The model "${modelName}" is not registered. Skipping.`);
       return null;
     }
-    if (Sprincul.#processedElements.has(element))
+    if (Sprincul.#processedElements.has(element)) {
+      if (devMode && Sprincul.#tearingDown(element)) {
+        console.warn(`[Sprincul] Skipped "${modelName}": the model on this element is still running an async beforeDestroy(). Await unmount() before mounting it again.`);
+      }
       return null;
+    }
     Sprincul.#processedElements.add(element);
     let model;
     let core;
@@ -780,64 +1012,109 @@ class Sprincul {
     return info.instance;
   }
   static unmount(element, modelName) {
-    const name = modelName || element.dataset.model;
-    if (!name) {
-      console.warn("[Sprincul] unmount() called on element without a model.");
-      return;
+    if (modelName !== undefined) {
+      Sprincul.#warnDeprecated("unmount(element, modelName)", "unmount(element)");
+      return Sprincul.#destroyOne(modelName, element);
     }
-    Sprincul.destroy(name, element);
+    const elements = [element, ...Array.from(element.querySelectorAll("[data-model]"))];
+    const models = elements.map((candidate) => getInstance(candidate)).filter((model) => model !== undefined);
+    return Sprincul.#destroyModels(models, true);
   }
   static destroy(modelName, element) {
-    const instances = Sprincul.#instancesByName.get(modelName);
     if (element) {
-      const target = Array.from(instances ?? []).find((instance) => instance.$el === element);
-      if (target) {
-        Sprincul.#destroyInstance(target);
-        return;
-      }
-      if (element.dataset.model && element.dataset.model !== modelName) {
-        console.warn(`[Sprincul] destroy("${modelName}") found no instance on an element mounted as "${element.dataset.model}".`);
-      }
-      return;
+      Sprincul.#warnDeprecated("destroy(modelName, element)", "unmount(element)");
+      return Sprincul.#destroyOne(modelName, element);
     }
-    if (!instances || instances.size === 0)
+    return Sprincul.#destroyModels(Array.from(Sprincul.#instancesByName.get(modelName) ?? []), false);
+  }
+  static #destroyOne(modelName, element) {
+    const target = Array.from(Sprincul.#instancesByName.get(modelName) ?? []).find((instance) => instance.$el === element);
+    if (target)
+      return Sprincul.#destroyInOrder([target]);
+    if (element.dataset.model && element.dataset.model !== modelName) {
+      console.warn(`[Sprincul] destroy("${modelName}") found no instance on an element mounted as "${element.dataset.model}".`);
+    }
+    return Promise.resolve();
+  }
+  static #warnDeprecated(form, replacement) {
+    if (Sprincul.#deprecationsWarned.has(form))
       return;
-    Array.from(instances).forEach((instance) => {
-      Sprincul.#destroyInstance(instance);
-    });
+    Sprincul.#deprecationsWarned.add(form);
+    console.warn(`[Sprincul] ${form} is deprecated and will be removed in a future release; use ${replacement}.`);
   }
   static destroyAll() {
-    Array.from(Sprincul.#instancesByName.keys()).forEach((modelName) => {
-      Sprincul.destroy(modelName);
+    const models = [];
+    Sprincul.#instancesByName.forEach((instances) => models.push(...instances));
+    return Sprincul.#destroyModels(models, false);
+  }
+  static #destroyModels(models, inDocumentOrder) {
+    if (!models.some((model) => typeof model.beforeDestroy === "function")) {
+      return Promise.all(models.map((model) => Sprincul.#destroyInstance(model))).then(() => {
+        return;
+      });
+    }
+    if (!inDocumentOrder)
+      models.sort((a, b) => Sprincul.#documentOrder(a.$el, b.$el));
+    return Sprincul.#destroyInOrder(models);
+  }
+  static #destroyInOrder(models) {
+    const pending = new Map;
+    models.forEach((model) => {
+      const ancestors = [];
+      for (let ancestor = model.$el.parentElement?.closest("[data-model]");ancestor; ancestor = ancestor.parentElement?.closest("[data-model]")) {
+        const teardown = pending.get(ancestor);
+        if (teardown)
+          ancestors.push(teardown);
+      }
+      const teardown = ancestors.length === 0 ? Sprincul.#destroyInstance(model) : Promise.all(ancestors).then(() => Sprincul.#destroyInstance(model));
+      if (teardown)
+        pending.set(model.$el, teardown);
     });
+    return Promise.all(pending.values()).then(() => {
+      return;
+    });
+  }
+  static #tearingDown(element) {
+    const models = [];
+    Sprincul.#instancesByName.forEach((instances) => models.push(...instances));
+    return models.some((model) => model.$el === element && Sprincul.#teardowns.has(model));
+  }
+  static #documentOrder(a, b) {
+    return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
   }
   static #destroyInstance(model) {
     if (Sprincul.#destroying.has(model))
-      return;
+      return Sprincul.#teardowns.get(model);
     Sprincul.#destroying.add(model);
+    deleteInstance(model);
     let beforeDestroyResult;
     try {
       beforeDestroyResult = Sprincul.#runHook(model, "beforeDestroy", true);
     } catch (e) {
       console.error('Error in "beforeDestroy" hook call:', e);
     }
-    if (beforeDestroyResult instanceof Promise) {
-      beforeDestroyResult.catch((e) => console.error('Error in "beforeDestroy" hook call:', e)).finally(() => Sprincul.#finishDestroy(model));
-    } else {
+    if (!(beforeDestroyResult instanceof Promise)) {
       Sprincul.#finishDestroy(model);
+      return;
     }
+    const teardown = beforeDestroyResult.catch((e) => console.error('Error in "beforeDestroy" hook call:', e)).then(() => {
+      Sprincul.#teardowns.delete(model);
+      Sprincul.#finishDestroy(model);
+    });
+    Sprincul.#teardowns.set(model, teardown);
+    return teardown;
   }
   static #finishDestroy(model) {
-    const core = getCore(model);
-    if (core) {
-      try {
-        core.destroy();
-      } finally {
-        deleteCore(model);
-      }
+    try {
+      abortSignal(model);
+      getCore(model)?.destroy();
+    } catch (e) {
+      console.error("[Sprincul] Error while tearing down a model:", e);
+    } finally {
+      deleteCore(model);
+      Sprincul.#processedElements.delete(model.$el);
+      Sprincul.#untrackModelInstance(model);
     }
-    Sprincul.#processedElements.delete(model.$el);
-    Sprincul.#untrackModelInstance(model);
   }
   static #restoreModelName(element, previousModelName) {
     if (previousModelName === undefined) {
@@ -852,8 +1129,10 @@ class Sprincul {
     }
     Sprincul.#instancesByName.get(modelName).add(model);
     Sprincul.#modelNames.set(model, modelName);
+    setInstance(model.$el, model);
   }
   static #untrackModelInstance(model) {
+    deleteInstance(model);
     const modelName = Sprincul.#modelNames.get(model);
     if (!modelName)
       return;
@@ -874,55 +1153,9 @@ class Sprincul {
     return Promise.resolve().then(() => hook.call(instance, ...args));
   }
 }
-
-// src/SprinculModel.ts
-class SprinculModel {
-  $el;
-  #state;
-  state;
-  #core;
-  constructor(element) {
-    this.$el = element;
-    this.#state = map({});
-    this.#state.listen((_, __, changed) => {
-      if (!changed)
-        return;
-      const core = this.#core || getCore(this);
-      if (core) {
-        core.scheduleUpdate(changed);
-      }
-    });
-    this.state = SprinculCore.createStateProxy(this.#state, () => this.#core || getCore(this));
-  }
-  wire(element) {
-    const core = this.#core || getCore(this);
-    if (!core) {
-      throw new Error(`[Sprincul] wire() called before core was available. Call it from beforeInit() or later instead.`);
-    }
-    core.processAddedElement(element);
-  }
-  unwire(element) {
-    const core = this.#core || getCore(this);
-    if (!core) {
-      throw new Error(`[Sprincul] unwire() called before core was available. Call it from beforeInit() or later instead.`);
-    }
-    core.unwireElement(element);
-  }
-  addComputedProp(name, fn, dependencies = []) {
-    if (dependencies.length === 0) {
-      console.warn(`[Sprincul] addComputedProp("${name}") called without dependencies. Bound elements will not re-render when the value changes.`);
-    }
-    const core = this.#core || getCore(this);
-    if (!core) {
-      throw new Error(`[Sprincul] addComputedProp("${name}") called before core was available. Call it from beforeInit() or later instead.`);
-    }
-    const callback = () => Reflect.apply(fn, this, []);
-    return core.registerComputedFromModel(name, callback, dependencies, this.#state) ?? (() => {});
-  }
-}
 export {
   Sprincul,
   SprinculModel
 };
 
-//# debugId=C3FCCF92D84FFB1F64756E2164756E21
+//# debugId=0A29C8708E877EB664756E2164756E21

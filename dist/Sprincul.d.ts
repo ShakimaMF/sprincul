@@ -9,7 +9,12 @@ export default class Sprincul {
     static store: {
         get<T = any>(key: string): T | undefined;
         set<T = any>(key: string, value: T): void;
-        subscribe<T = any>(key: string, callback: (value: T | undefined) => void): () => void;
+        /**
+         * Listen for changes to a key. Pass `options.signal` (e.g. a model's `$signal`) to unsubscribe when it aborts.
+         */
+        subscribe<T = any>(key: string, callback: (value: T | undefined) => void, options?: {
+            signal?: AbortSignal;
+        }): () => void;
         clear(): void;
     };
     /**
@@ -17,11 +22,16 @@ export default class Sprincul {
      */
     static register(name: string, modelClass: SprinculModelConstructor): void;
     /**
-     * Register multiple model classes at once
+     * Register multiple model classes at once, each under its key. Takes an object literal or a module namespace
+     * (`import * as models`) whose exports are all models; any value that isn't one is skipped with a warning.
      */
-    static registerAll(models: Record<string, SprinculModelConstructor>): void;
+    static registerAll<T extends {
+        [K in keyof T]: SprinculModelConstructor;
+    }>(models: T): void;
     /**
-     * Initiate a one-time scan of every `[data-model]` element within `options.root` (default `document.body`).
+     * Mount every registered `[data-model]` element within `options.root` (default `document.body`), the root included.
+     * Elements already mounted are skipped, so it is safe to call again on content added later.
+     * Nested models mount before the models containing them, so a parent's `afterInit()` finds its children mounted.
      *
      * @param {SprinculInitOptions} options
      *
@@ -49,18 +59,36 @@ export default class Sprincul {
      */
     static mount<T extends SprinculModel = SprinculModel>(element: HTMLElement, modelClassOrName: SprinculModelConstructor | string, options?: SprinculMountOptions): T;
     /**
-     * Unmount a model instance from a specific element
-     * @param element - The HTML element to unmount from
-     * @param modelName - Optional model name to target specific instance
-     */
-    static unmount(element: HTMLElement, modelName?: string): void;
-    /**
-     * Destroy a model instance by name. If `element` is provided, destroy only that instance.
-     * Otherwise, destroy all instances of the model.
+     * Tear down the model on `element` and every model inside it. A parent's `beforeDestroy()` settles
+     * before its nested models are torn down, so it can still reach them.
+     * The reverse of `init({ root })`: `element` doesn't need a model of its own.
      *
-     * @param modelName
-     * @param element
+     * @param element - The element whose models to tear down
+     * @returns A promise that resolves once every `beforeDestroy()` has settled and teardown is complete
      */
-    static destroy(modelName: string, element?: HTMLElement): void;
-    static destroyAll(): void;
+    static unmount(element: HTMLElement): Promise<void>;
+    /**
+     * @deprecated An element has only one model, so pass just the element: `unmount(element)`, which also
+     * tears down the models inside it. This form tears down only the model on `element`, if it is named `modelName`.
+     */
+    static unmount(element: HTMLElement, modelName: string): Promise<void>;
+    /**
+     * Tear down every instance of a model, the same way as `unmount()`.
+     *
+     * @param modelName - The registered model name
+     * @returns A promise that resolves once every `beforeDestroy()` has settled and teardown is complete
+     */
+    static destroy(modelName: string): Promise<void>;
+    /**
+     * @deprecated Use `unmount(element)` to tear down the model on an element. This form tears down only
+     * the model on `element`, if it is named `modelName`.
+     */
+    static destroy(modelName: string, element: HTMLElement): Promise<void>;
+    /**
+     * Destroy every live model, the same way as `unmount()`. It also reaches models
+     * whose elements have already left the page.
+     *
+     * @returns A promise that resolves once every `beforeDestroy()` has settled and teardown is complete
+     */
+    static destroyAll(): Promise<void>;
 }
