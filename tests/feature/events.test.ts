@@ -145,4 +145,65 @@ describe("Sprincul - Model events", () => {
 
 		warnSpy.mockRestore();
 	});
+
+	test("$listen also stops when the caller's own signal aborts", () => {
+		const el = document.createElement("div");
+		container.appendChild(el);
+		const instance = Sprincul.mount(el, class extends SprinculModel {});
+		const caller = new AbortController();
+		const seen: string[] = [];
+
+		instance.$listen(el, "ping", (e: CustomEvent) => seen.push(e.detail), { signal: caller.signal });
+		el.dispatchEvent(new CustomEvent("ping", { detail: "before" }));
+		caller.abort();
+		el.dispatchEvent(new CustomEvent("ping", { detail: "after" }));
+
+		expect(seen).toEqual(["before"]);
+		expect(instance.$signal.aborted).toBe(false);
+	});
+
+	test("$listen after the model is destroyed adds nothing", () => {
+		const el = document.createElement("div");
+		container.appendChild(el);
+		const instance = Sprincul.mount(el, class extends SprinculModel {});
+		const seen: string[] = [];
+
+		Sprincul.unmount(el);
+		instance.$listen(document, "shortcut", (e: CustomEvent) => seen.push(e.detail));
+		document.dispatchEvent(new CustomEvent("shortcut", { detail: "late" }));
+
+		expect(seen).toEqual([]);
+	});
+
+	test("$signal is already aborted when first read after teardown", () => {
+		const el = document.createElement("div");
+		container.appendChild(el);
+		const instance = Sprincul.mount(el, class extends SprinculModel {});
+
+		Sprincul.unmount(el);
+
+		expect(instance.$signal.aborted).toBe(true);
+	});
+
+	test("calling a store unsubscribe twice doesn't drop another subscription sharing its callback", () => {
+		const values: unknown[] = [];
+		const record = (value: unknown) => values.push(value);
+
+		const first = Sprincul.store.subscribe("theme", record);
+		Sprincul.store.subscribe("theme", record);
+		first();
+		first();
+		Sprincul.store.set("theme", "dark");
+
+		expect(values).toEqual(["dark"]);
+	});
+
+	test("$emit respects bubbles: false", () => {
+		const { editor, picker, picks } = mountPair();
+
+		picker.$emit("pick", { module: "local" }, { bubbles: false });
+
+		expect(picks).toEqual([]);
+		expect(editor).not.toBeNull();
+	});
 });

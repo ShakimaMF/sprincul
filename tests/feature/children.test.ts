@@ -75,4 +75,41 @@ describe("Sprincul - Reaching nested and parent models", () => {
 
 		expect(parentDuringInit).toBeNull();
 	});
+
+	test("$child returns a child whose async beforeInit is still pending", async () => {
+		let release!: () => void;
+		let childFromParent: any;
+
+		class Slow extends SprinculModel {
+			ready = false;
+
+			async beforeInit() {
+				await new Promise<void>((resolve) => (release = resolve));
+				this.ready = true;
+			}
+		}
+		class Host extends SprinculModel {
+			afterInit() {
+				childFromParent = this.$child("slow");
+			}
+		}
+		Sprincul.registerAll({ Host, Slow });
+		container.innerHTML = html`<div data-model="Host"><div data-model="Slow" data-ref="slow"></div></div>`;
+
+		initInstances(container);
+
+		expect(childFromParent).not.toBeNull();
+		expect(childFromParent.ready).toBe(false);
+		release();
+		await Promise.resolve();
+		expect(childFromParent.ready).toBe(true);
+	});
+
+	test("$parent is null once the parent is unmounted", () => {
+		const { editor, stacks } = mountEditor();
+
+		Sprincul.unmount(editor.$el);
+
+		expect(stacks[0].$parent()).toBeNull();
+	});
 });

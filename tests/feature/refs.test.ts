@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 import { expect, test, describe, spyOn } from "bun:test";
-import { html, waitForDomUpdate } from "../helpers.ts";
+import { html, initInstances, waitForDomUpdate } from "../helpers.ts";
 
 describe("Sprincul - Refs", () => {
 	test("a ref resolves in beforeInit, binding callbacks, and afterInit", async () => {
@@ -114,7 +114,8 @@ describe("Sprincul - Refs", () => {
 		class ResultsModel extends SprinculModel {}
 
 		const el = document.createElement("div");
-		el.innerHTML = html`<ul></ul><template><li data-ref="item">cloned</li></template>`;
+		el.innerHTML = html`<ul></ul>
+			<template><li data-ref="item">cloned</li></template>`;
 		container.appendChild(el);
 
 		const instance = Sprincul.mount(el, ResultsModel);
@@ -169,5 +170,53 @@ describe("Sprincul - Refs", () => {
 		);
 
 		warnSpy.mockRestore();
+	});
+
+	test("a ref on a grandchild model's root belongs to the model directly containing it", () => {
+		class Outer extends SprinculModel {}
+		class Middle extends SprinculModel {}
+		class Inner extends SprinculModel {}
+		Sprincul.registerAll({ Outer, Middle, Inner });
+		container.innerHTML = html`<div data-model="Outer">
+			<div data-model="Middle" data-ref="middle">
+				<div data-model="Inner" data-ref="inner"></div>
+			</div>
+		</div>`;
+
+		const instances = initInstances(container);
+		const outer = instances.get(container.querySelector('[data-model="Outer"]')!);
+		const middle = instances.get(container.querySelector('[data-model="Middle"]')!);
+
+		expect(outer.$ref("middle")).toBe(middle.$el);
+		expect(outer.$ref("inner")).toBeNull();
+		expect(middle.$ref("inner")).toBe(container.querySelector('[data-model="Inner"]'));
+	});
+
+	test("an empty ref name matches nothing", () => {
+		const el = document.createElement("div");
+		el.innerHTML = html`<span data-ref=""></span>`;
+		container.appendChild(el);
+
+		const instance = Sprincul.mount(el, class extends SprinculModel {});
+
+		expect(instance.$refs("")).toEqual([]);
+	});
+
+	test("refs can be read from the constructor, before the model is mounted", () => {
+		let fromConstructor: HTMLElement | null = null;
+
+		class Early extends SprinculModel {
+			constructor(element: HTMLElement) {
+				super(element);
+				fromConstructor = this.$ref("note");
+			}
+		}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<span data-ref="note"></span>`;
+		container.appendChild(el);
+		Sprincul.mount(el, Early);
+
+		expect(fromConstructor).toBe(el.querySelector("span"));
 	});
 });

@@ -54,9 +54,15 @@ export default class Sprincul {
 			}
 			const unsubscribe = Sprincul.#globalStores.get(key)!.listen(callback as (value: any) => void);
 
-			// Detach from the signal too, so subscribing and unsubscribing repeatedly doesn't pile up on it
+			/*
+			 * Detach from the signal too, so subscribing and unsubscribing repeatedly doesn't pile up on it.
+			 * Runs once: nanostores unbinds by callback, so a second call could drop another subscription sharing it.
+			 */
 			const signal = options?.signal;
+			let stopped = false;
 			const stop = () => {
+				if (stopped) return;
+				stopped = true;
 				signal?.removeEventListener("abort", stop);
 				unsubscribe();
 			};

@@ -440,4 +440,18 @@ describe("Sprincul - Data Bindings", () => {
 			errorSpy.mockRestore();
 		});
 	});
+
+	test("the devMode warning for a missing callback names the attribute as written", () => {
+		const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<span data-bind-button-text="missingFn"></span>`;
+		container.appendChild(el);
+		Sprincul.mount(el, class extends SprinculModel {}, { devMode: true });
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[Sprincul] Binding callback "missingFn" not found for data-bind-button-text.',
+		);
+		warnSpy.mockRestore();
+	});
 });

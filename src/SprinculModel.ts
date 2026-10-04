@@ -121,6 +121,8 @@ export default class SprinculModel {
 	 * @return {T[]} The matching elements, or an empty array if there are none.
 	 */
 	$refs<T extends HTMLElement = HTMLElement>(name: string): T[] {
+		if (!name) return [];
+
 		const matches = Array.from(this.$el.querySelectorAll<T>("[data-ref]")).filter(
 			(element) =>
 				element.getAttribute("data-ref")!.trim() === name && SprinculModel.#ownerOf(element) === this.$el,
@@ -292,19 +294,18 @@ export default class SprinculModel {
 			AddEventListenerOptions?,
 		] = typeof args[0] === "string" ? [this.$el, args[0], args[1]] : [args[0], args[1], args[2], args[3]];
 
-		// Each listener gets its own controller following $signal, so removing it early also detaches it from $signal
-		const signal = this.$signal;
+		// Each listener gets its own controller following $signal (and the caller's signal, if any), so removing
+		// it early also detaches it from them
+		const signals = [this.$signal, options?.signal].filter((signal): signal is AbortSignal => !!signal);
 		const controller = new AbortController();
 		const stop = () => {
-			signal.removeEventListener("abort", stop);
+			signals.forEach((signal) => signal.removeEventListener("abort", stop));
 			controller.abort();
 		};
 
-		if (signal.aborted) {
-			controller.abort();
-		} else {
-			signal.addEventListener("abort", stop, { once: true });
-		}
+		// Nothing to add once the model (or the caller) has already stopped
+		if (signals.some((signal) => signal.aborted)) return stop;
+		signals.forEach((signal) => signal.addEventListener("abort", stop, { once: true }));
 
 		target.addEventListener(
 			type,

@@ -62,7 +62,10 @@ describe("Sprincul - Subtree mounting", () => {
 
 		container.insertAdjacentHTML("beforeend", html`<div data-model="Logged" data-label="added"></div>`);
 		let reported: string[] = [];
-		Sprincul.init({ root: container, onReady: (models) => (reported = models.map((m) => m.element.dataset.label!)) });
+		Sprincul.init({
+			root: container,
+			onReady: (models) => (reported = models.map((m) => m.element.dataset.label!)),
+		});
 
 		expect(log).toEqual(["init:existing", "init:added"]);
 		expect(reported).toEqual(["added"]);
@@ -221,5 +224,87 @@ describe("Sprincul - Subtree mounting", () => {
 		Sprincul.destroyAll();
 
 		expect(log).toEqual(["destroy:parent", "destroy:first", "destroy:grandchild", "destroy:second"]);
+	});
+
+	test("unmount() resolves after an async beforeDestroy, and a repeat call waits for the same teardown", async () => {
+		let release!: () => void;
+		let destroyed = false;
+
+		class Slow extends SprinculModel {
+			async beforeDestroy() {
+				await new Promise<void>((resolve) => (release = resolve));
+				destroyed = true;
+			}
+		}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+		Sprincul.mount(el, Slow);
+
+		const first = Sprincul.unmount(el);
+		const second = Sprincul.unmount(el);
+		let settled = false;
+		second.then(() => (settled = true));
+
+		await Promise.resolve();
+		expect(settled).toBe(false);
+
+		release();
+		await Promise.all([first, second]);
+
+		expect(destroyed).toBe(true);
+		expect(settled).toBe(true);
+		// Torn down, so the element can be mounted again
+		expect(() => Sprincul.mount(el, Slow)).not.toThrow();
+	});
+
+	test("destroyAll() waits for a parent's async beforeDestroy before its children", async () => {
+		const log: string[] = [];
+		let release!: () => void;
+
+		class Child extends SprinculModel {
+			beforeDestroy() {
+				log.push("destroy:child");
+			}
+		}
+		class Parent extends SprinculModel {
+			async beforeDestroy() {
+				await new Promise<void>((resolve) => (release = resolve));
+				log.push("destroy:parent");
+			}
+		}
+		Sprincul.registerAll({ Parent, Child });
+		container.innerHTML = html`<div data-model="Parent"><div data-model="Child"></div></div>`;
+		Sprincul.init({ root: container });
+
+		const done = Sprincul.destroyAll();
+		expect(log).toEqual([]);
+
+		release();
+		await done;
+
+		expect(log).toEqual(["destroy:parent", "destroy:child"]);
+	});
+
+	test("mount() on an element still tearing down throws, and works once the teardown is awaited", async () => {
+		let release!: () => void;
+
+		class Slow extends SprinculModel {
+			beforeDestroy() {
+				return new Promise<void>((resolve) => (release = resolve));
+			}
+		}
+
+		const el = document.createElement("div");
+		container.appendChild(el);
+		Sprincul.mount(el, Slow);
+
+		const done = Sprincul.unmount(el);
+		expect(() => Sprincul.mount(el, Slow)).toThrow(/already be processed/);
+
+		release();
+		await done;
+
+		expect(() => Sprincul.mount(el, Slow)).not.toThrow();
 	});
 });
