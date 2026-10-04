@@ -27,6 +27,7 @@
 		"build": "bun run build:js && bun run build:types",
 		"build:js": "bun build src/index.ts --target=browser --format=esm --outdir=dist --sourcemap=external && bun build src/index.ts --target=browser --format=esm --outdir=dist --minify --sourcemap=external --entry-naming [dir]/[name].min.[ext]",
 		"build:types": "tsc",
+		"bench": "bun bench/run.ts",
 		"format": "bunx prettier . --write",
 		"format:check": "bunx prettier . --check"
 	},
@@ -42,6 +43,7 @@
 	"devDependencies": {
 		"@types/bun": "^1.4.2",
 		"happy-dom": "^20.14.5",
+		"playwright": "^1.63.0",
 		"prettier": "3.9.8",
 		"typescript": "^7.0.2"
 	},
