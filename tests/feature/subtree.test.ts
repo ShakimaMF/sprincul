@@ -320,6 +320,51 @@ describe("Sprincul - Subtree mounting", () => {
 		expect(log).toEqual(["destroy:parent", "destroy:first", "destroy:grandchild", "destroy:second"]);
 	});
 
+	describe("without a beforeDestroy anywhere", () => {
+		function mountPlainTree() {
+			class Plain extends SprinculModel {
+				clicks = 0;
+
+				count() {
+					this.clicks++;
+				}
+			}
+			Sprincul.register("Plain", Plain);
+			container.innerHTML = tree
+				.replaceAll("Logged", "Plain")
+				.replaceAll("<div data-model", '<div onclick="count" data-model');
+			const instances = [...initInstances(container).values()];
+			expect(instances).toHaveLength(4);
+			return instances;
+		}
+
+		function expectReleased(instances: any[]) {
+			instances.forEach((instance) => {
+				expect(instance.$signal.aborted).toBe(true);
+				instance.$el.click();
+			});
+			expect(instances.map((instance) => instance.clicks)).toEqual([0, 0, 0, 0]);
+		}
+
+		test("unmount() still releases every model in the tree", () => {
+			const instances = mountPlainTree();
+			Sprincul.unmount(container);
+			expectReleased(instances);
+		});
+
+		test("destroy(name) still releases every instance", () => {
+			const instances = mountPlainTree();
+			Sprincul.destroy("Plain");
+			expectReleased(instances);
+		});
+
+		test("destroyAll() still releases every model", () => {
+			const instances = mountPlainTree();
+			Sprincul.destroyAll();
+			expectReleased(instances);
+		});
+	});
+
 	describe("deprecated forms", () => {
 		function mountTree() {
 			const log: string[] = [];

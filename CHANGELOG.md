@@ -18,8 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Breaking:** `data-bind-*` names follow the `dataset` rule: `data-bind-button-text` binds `state.buttonText` (and `defaults.buttonText`) instead of `state["button-text"]`. See [Data Bindings](https://github.com/ShakimaMF/sprincul/wiki/Data-Bindings).
-- `init()` mounts nested models before the models containing them, so a parent's `afterInit()` finds its children mounted. `destroyAll()` now tears down parents before children, and a parent's async `beforeDestroy()` settles before its children are torn down.
-- **Breaking:** `unmount(el)` also tears down every model inside `el`, parents first, and works on an element without a model of its own (the reverse of `init({ root })`). See [Mounting and Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting).
+- `init()` mounts nested models before the models containing them, so a parent's `afterInit()` finds its children mounted. In `destroyAll()`, a parent's `beforeDestroy()` (including an async one) now settles before its children are torn down.
+- **Breaking:** `unmount(el)` also tears down every model inside `el` and works on an element without a model of its own (the reverse of `init({ root })`). See [Mounting and Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting).
 - `unmount()`, `destroy()`, and `destroyAll()` return a promise that resolves once every `beforeDestroy()` has settled. A model whose teardown fails is logged and doesn't stop the rest.
 
 ### Deprecated

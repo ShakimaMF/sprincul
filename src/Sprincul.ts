@@ -327,8 +327,8 @@ export default class Sprincul {
 	}
 
 	/**
-	 * Tear down the model on `element` and every model inside it, parents first. A parent's
-	 * `beforeDestroy()` settles before its nested models are torn down, so it can still reach them.
+	 * Tear down the model on `element` and every model inside it. A parent's `beforeDestroy()` settles
+	 * before its nested models are torn down, so it can still reach them.
 	 * The reverse of `init({ root })`: `element` doesn't need a model of its own.
 	 *
 	 * @param element - The element whose models to tear down
@@ -349,11 +349,11 @@ export default class Sprincul {
 		const elements = [element, ...Array.from(element.querySelectorAll<HTMLElement>("[data-model]"))];
 		const models = elements.map((candidate) => getInstance(candidate)).filter((model) => model !== undefined);
 
-		return Sprincul.#destroyInOrder(models as SprinculModel[]);
+		return Sprincul.#destroyModels(models as SprinculModel[], true);
 	}
 
 	/**
-	 * Tear down every instance of a model, parents first.
+	 * Tear down every instance of a model, the same way as `unmount()`.
 	 *
 	 * @param modelName - The registered model name
 	 * @returns A promise that resolves once every `beforeDestroy()` has settled and teardown is complete
@@ -370,10 +370,7 @@ export default class Sprincul {
 			return Sprincul.#destroyOne(modelName, element);
 		}
 
-		const instances = Sprincul.#instancesByName.get(modelName);
-		return Sprincul.#destroyInOrder(
-			Array.from(instances ?? []).sort((a, b) => Sprincul.#documentOrder(a.$el, b.$el)),
-		);
+		return Sprincul.#destroyModels(Array.from(Sprincul.#instancesByName.get(modelName) ?? []), false);
 	}
 
 	/** The 0.3.0 single-model teardown behind the deprecated `unmount(el, name)` / `destroy(name, el)`. */
@@ -400,7 +397,7 @@ export default class Sprincul {
 	}
 
 	/**
-	 * Destroy every live model, parents before children, the same way as `unmount()`. It also reaches models
+	 * Destroy every live model, the same way as `unmount()`. It also reaches models
 	 * whose elements have already left the page.
 	 *
 	 * @returns A promise that resolves once every `beforeDestroy()` has settled and teardown is complete
@@ -409,7 +406,20 @@ export default class Sprincul {
 		const models: SprinculModel[] = [];
 		Sprincul.#instancesByName.forEach((instances) => models.push(...instances));
 
-		return Sprincul.#destroyInOrder(models.sort((a, b) => Sprincul.#documentOrder(a.$el, b.$el)));
+		return Sprincul.#destroyModels(models, false);
+	}
+
+	/**
+	 * Order only matters to a `beforeDestroy()` reaching its nested models, so without one among `models`
+	 * they're torn down as they come. `inDocumentOrder` skips sorting models that already are.
+	 */
+	static #destroyModels(models: SprinculModel[], inDocumentOrder: boolean): Promise<void> {
+		if (!models.some((model) => typeof model.beforeDestroy === "function")) {
+			return Promise.all(models.map((model) => Sprincul.#destroyInstance(model))).then(() => undefined);
+		}
+
+		if (!inDocumentOrder) models.sort((a, b) => Sprincul.#documentOrder(a.$el, b.$el));
+		return Sprincul.#destroyInOrder(models);
 	}
 
 	/**
