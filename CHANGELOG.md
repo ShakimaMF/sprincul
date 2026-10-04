@@ -12,14 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `data-ref` with `$ref()` / `$refs()` for reading elements within a model. See [Refs](https://github.com/ShakimaMF/sprincul/wiki/Refs).
 - Add `$data(name, fallback)` for reading typed config from a model root's data attributes. See [Model Data](https://github.com/ShakimaMF/sprincul/wiki/Model-Data).
 - Add `$child()` / `$children()` and `$parent()` for reaching nested and parent models. See [Refs](https://github.com/ShakimaMF/sprincul/wiki/Refs#reaching-nested-and-parent-models).
-- Add `Sprincul.unmountAll(root)` for tearing down every model in a subtree, parents first. See [Mounting and Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting).
 - Add `$emit()`, `$listen()`, and `$signal` for events between models and cleanup on destroy, and a `signal` option on `Sprincul.store.subscribe()`. See [Model Events](https://github.com/ShakimaMF/sprincul/wiki/Model-Events).
 
 ### Changed
 
 - **Breaking:** `data-bind-*` names follow the `dataset` rule: `data-bind-button-text` binds `state.buttonText` (and `defaults.buttonText`) instead of `state["button-text"]`. See [Data Bindings](https://github.com/ShakimaMF/sprincul/wiki/Data-Bindings).
 - `init()` mounts nested models before the models containing them, so a parent's `afterInit()` finds its children mounted. `destroyAll()` now tears down parents before children, and a parent's async `beforeDestroy()` settles before its children are torn down.
+- **Breaking:** `unmount(el)` also tears down every model inside `el`, parents first, and works on an element without a model of its own (the reverse of `init({ root })`). See [Mounting and Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting).
 - `unmount()`, `destroy()`, and `destroyAll()` return a promise that resolves once every `beforeDestroy()` has settled. A model whose teardown fails is logged and doesn't stop the rest.
+
+### Deprecated
+
+- `unmount(el, modelName)` and `destroy(modelName, el)`: use `unmount(el)`. Both still work for now and warn once.
 
 ## [0.3.0] - 2026-09-24
 

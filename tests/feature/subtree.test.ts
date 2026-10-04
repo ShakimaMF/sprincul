@@ -71,7 +71,7 @@ describe("Sprincul - Subtree mounting", () => {
 		expect(reported).toEqual(["added"]);
 	});
 
-	test("unmountAll(root) tears down the subtree only, parents first", () => {
+	test("unmount(el) tears down the subtree only, parents first", () => {
 		const log: string[] = [];
 		registerLogging(log);
 		container.innerHTML = tree + html`<div data-model="Logged" data-label="outside"></div>`;
@@ -79,7 +79,7 @@ describe("Sprincul - Subtree mounting", () => {
 		log.length = 0;
 
 		const first = container.querySelector('[data-label="first"]') as HTMLElement;
-		Sprincul.unmountAll(first);
+		Sprincul.unmount(first);
 
 		expect(log).toEqual(["destroy:first", "destroy:grandchild"]);
 	});
@@ -108,7 +108,7 @@ describe("Sprincul - Subtree mounting", () => {
 		container.innerHTML = html`<div data-model="Parent"><div data-model="Child" data-ref="child"></div></div>`;
 		Sprincul.init({ root: container });
 
-		const done = Sprincul.unmountAll(container);
+		const done = Sprincul.unmount(container);
 		expect(log).toEqual([]);
 
 		release();
@@ -135,12 +135,12 @@ describe("Sprincul - Subtree mounting", () => {
 		container.innerHTML = html`<div data-model="Slow"></div>`;
 		Sprincul.init({ root: container });
 
-		const done = Sprincul.unmountAll(container);
+		const done = Sprincul.unmount(container);
 		Sprincul.init({ root: container, devMode: true });
 
 		expect(mounts).toBe(1);
 		expect(warnSpy).toHaveBeenCalledWith(
-			'[Sprincul] Skipped "Slow": the model on this element is still running an async beforeDestroy(). Await unmount() or unmountAll() before mounting it again.',
+			'[Sprincul] Skipped "Slow": the model on this element is still running an async beforeDestroy(). Await unmount() before mounting it again.',
 		);
 
 		release();
@@ -192,7 +192,7 @@ describe("Sprincul - Subtree mounting", () => {
 		test("sync: the rest of the subtree is still torn down and the element can be mounted again", async () => {
 			const { errorSpy, log, mounts } = mountWithBrokenTeardown(false);
 
-			await Sprincul.unmountAll(container);
+			await Sprincul.unmount(container);
 
 			expect(log).toEqual(["destroy:child", "destroy:sibling"]);
 			expect(errorSpy).toHaveBeenCalled();
@@ -204,7 +204,7 @@ describe("Sprincul - Subtree mounting", () => {
 		test("async: its children are still torn down and the returned promise resolves", async () => {
 			const { errorSpy, log, mounts } = mountWithBrokenTeardown(true);
 
-			await Sprincul.unmountAll(container);
+			await Sprincul.unmount(container);
 
 			expect(log).toEqual(["destroy:sibling", "destroy:child"]);
 			expect(errorSpy).toHaveBeenCalled();
@@ -306,5 +306,60 @@ describe("Sprincul - Subtree mounting", () => {
 		await done;
 
 		expect(() => Sprincul.mount(el, Slow)).not.toThrow();
+	});
+
+	test("unmount() on a model also tears down the models inside it", () => {
+		const log: string[] = [];
+		registerLogging(log);
+		container.innerHTML = tree;
+		Sprincul.init({ root: container });
+		log.length = 0;
+
+		Sprincul.unmount(container.querySelector('[data-label="parent"]') as HTMLElement);
+
+		expect(log).toEqual(["destroy:parent", "destroy:first", "destroy:grandchild", "destroy:second"]);
+	});
+
+	describe("deprecated forms", () => {
+		function mountTree() {
+			const log: string[] = [];
+			registerLogging(log);
+			container.innerHTML = tree;
+			Sprincul.init({ root: container });
+			log.length = 0;
+			return { log, parent: container.querySelector('[data-label="parent"]') as HTMLElement };
+		}
+
+		test("unmount(el, name) still tears down only that model, and warns once", () => {
+			const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+			const { log, parent } = mountTree();
+
+			Sprincul.unmount(parent, "Logged");
+			Sprincul.unmount(container.querySelector('[data-label="second"]') as HTMLElement, "Logged");
+
+			expect(log).toEqual(["destroy:parent", "destroy:second"]);
+			expect(warnSpy.mock.calls.filter(([message]) => String(message).includes("is deprecated"))).toEqual([
+				[
+					"[Sprincul] unmount(element, modelName) is deprecated and will be removed in a future release; use unmount(element).",
+				],
+			]);
+			warnSpy.mockRestore();
+		});
+
+		test("destroy(name, el) still tears down only that model, and warns once", () => {
+			const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+			const { log, parent } = mountTree();
+
+			Sprincul.destroy("Logged", parent);
+			Sprincul.destroy("Logged", parent);
+
+			expect(log).toEqual(["destroy:parent"]);
+			expect(warnSpy.mock.calls.filter(([message]) => String(message).includes("is deprecated"))).toEqual([
+				[
+					"[Sprincul] destroy(modelName, element) is deprecated and will be removed in a future release; use unmount(element).",
+				],
+			]);
+			warnSpy.mockRestore();
+		});
 	});
 });

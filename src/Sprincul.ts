@@ -26,6 +26,8 @@ export default class Sprincul {
 	static #destroying = new WeakSet<SprinculModel>();
 	/** Teardowns waiting on an async beforeDestroy, so a repeat call can wait for the same one. */
 	static #teardowns = new WeakMap<SprinculModel, Promise<void>>();
+	/** Deprecated call forms already warned about, so each warns once. */
+	static #deprecationsWarned = new Set<string>();
 	/** Instances with a still-pending async beforeInit. */
 	static #pendingBeforeInit = new WeakSet<SprinculModel>();
 
@@ -176,7 +178,7 @@ export default class Sprincul {
 		if (Sprincul.#processedElements.has(element)) {
 			if (devMode && Sprincul.#tearingDown(element)) {
 				console.warn(
-					`[Sprincul] Skipped "${modelName}": the model on this element is still running an async beforeDestroy(). Await unmount() or unmountAll() before mounting it again.`,
+					`[Sprincul] Skipped "${modelName}": the model on this element is still running an async beforeDestroy(). Await unmount() before mounting it again.`,
 				);
 			}
 			return null;
@@ -325,66 +327,81 @@ export default class Sprincul {
 	}
 
 	/**
-	 * Unmount a model instance from a specific element
-	 * @param element - The HTML element to unmount from
-	 * @param modelName - Optional model name to target specific instance
-	 * @returns A promise that resolves once its `beforeDestroy()` has settled and teardown is complete
-	 */
-	static unmount(element: HTMLElement, modelName?: string): Promise<void> {
-		const name = modelName || element.dataset.model;
-		if (!name) {
-			console.warn("[Sprincul] unmount() called on element without a model.");
-			return Promise.resolve();
-		}
-		return Sprincul.destroy(name, element);
-	}
-
-	/**
-	 * Destroy a model instance by name. If `element` is provided, destroy only that instance.
-	 * Otherwise, destroy all instances of the model.
-	 *
-	 * @param modelName
-	 * @param element
-	 * @returns A promise that resolves once every `beforeDestroy()` has settled and teardown is complete
-	 */
-	static destroy(modelName: string, element?: HTMLElement): Promise<void> {
-		const instances = Sprincul.#instancesByName.get(modelName);
-
-		if (element) {
-			const target = Array.from(instances ?? []).find((instance) => instance.$el === element);
-			if (target) return Sprincul.#destroyInOrder([target]);
-
-			// Warn only when the element is actually mounted under a different name: destroying an
-			// already-destroyed element is a legitimate idempotent call
-			if (element.dataset.model && element.dataset.model !== modelName) {
-				console.warn(
-					`[Sprincul] destroy("${modelName}") found no instance on an element mounted as "${element.dataset.model}".`,
-				);
-			}
-			return Promise.resolve();
-		}
-
-		return Sprincul.#destroyInOrder(
-			Array.from(instances ?? []).sort((a, b) => Sprincul.#documentOrder(a.$el, b.$el)),
-		);
-	}
-
-	/**
-	 * Destroy every model mounted on `root` or inside it, parents before children. A parent's
+	 * Tear down the model on `element` and every model inside it, parents first. A parent's
 	 * `beforeDestroy()` settles before its nested models are torn down, so it can still reach them.
+	 * The reverse of `init({ root })`: `element` doesn't need a model of its own.
 	 *
-	 * @param root - The element whose subtree to tear down
+	 * @param element - The element whose models to tear down
 	 * @returns A promise that resolves once every `beforeDestroy()` has settled and teardown is complete
 	 */
-	static unmountAll(root: HTMLElement): Promise<void> {
-		const elements = [root, ...Array.from(root.querySelectorAll<HTMLElement>("[data-model]"))];
-		const models = elements.map((element) => getInstance(element)).filter((model) => model !== undefined);
+	static unmount(element: HTMLElement): Promise<void>;
+	/**
+	 * @deprecated An element has only one model, so pass just the element: `unmount(element)`, which also
+	 * tears down the models inside it. This form tears down only the model on `element`, if it is named `modelName`.
+	 */
+	static unmount(element: HTMLElement, modelName: string): Promise<void>;
+	static unmount(element: HTMLElement, modelName?: string): Promise<void> {
+		if (modelName !== undefined) {
+			Sprincul.#warnDeprecated("unmount(element, modelName)", "unmount(element)");
+			return Sprincul.#destroyOne(modelName, element);
+		}
+
+		const elements = [element, ...Array.from(element.querySelectorAll<HTMLElement>("[data-model]"))];
+		const models = elements.map((candidate) => getInstance(candidate)).filter((model) => model !== undefined);
 
 		return Sprincul.#destroyInOrder(models as SprinculModel[]);
 	}
 
 	/**
-	 * Destroy every live model, parents before children, the same way as `unmountAll()`.
+	 * Tear down every instance of a model, parents first.
+	 *
+	 * @param modelName - The registered model name
+	 * @returns A promise that resolves once every `beforeDestroy()` has settled and teardown is complete
+	 */
+	static destroy(modelName: string): Promise<void>;
+	/**
+	 * @deprecated Use `unmount(element)` to tear down the model on an element. This form tears down only
+	 * the model on `element`, if it is named `modelName`.
+	 */
+	static destroy(modelName: string, element: HTMLElement): Promise<void>;
+	static destroy(modelName: string, element?: HTMLElement): Promise<void> {
+		if (element) {
+			Sprincul.#warnDeprecated("destroy(modelName, element)", "unmount(element)");
+			return Sprincul.#destroyOne(modelName, element);
+		}
+
+		const instances = Sprincul.#instancesByName.get(modelName);
+		return Sprincul.#destroyInOrder(
+			Array.from(instances ?? []).sort((a, b) => Sprincul.#documentOrder(a.$el, b.$el)),
+		);
+	}
+
+	/** The 0.3.0 single-model teardown behind the deprecated `unmount(el, name)` / `destroy(name, el)`. */
+	static #destroyOne(modelName: string, element: HTMLElement): Promise<void> {
+		const target = Array.from(Sprincul.#instancesByName.get(modelName) ?? []).find(
+			(instance) => instance.$el === element,
+		);
+		if (target) return Sprincul.#destroyInOrder([target]);
+
+		// Warn only when the element is actually mounted under a different name: destroying an
+		// already-destroyed element is a legitimate idempotent call
+		if (element.dataset.model && element.dataset.model !== modelName) {
+			console.warn(
+				`[Sprincul] destroy("${modelName}") found no instance on an element mounted as "${element.dataset.model}".`,
+			);
+		}
+		return Promise.resolve();
+	}
+
+	static #warnDeprecated(form: string, replacement: string): void {
+		if (Sprincul.#deprecationsWarned.has(form)) return;
+		Sprincul.#deprecationsWarned.add(form);
+		console.warn(`[Sprincul] ${form} is deprecated and will be removed in a future release; use ${replacement}.`);
+	}
+
+	/**
+	 * Destroy every live model, parents before children, the same way as `unmount()`. It also reaches models
+	 * whose elements have already left the page.
 	 *
 	 * @returns A promise that resolves once every `beforeDestroy()` has settled and teardown is complete
 	 */

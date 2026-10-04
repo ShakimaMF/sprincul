@@ -59,7 +59,7 @@ describe("Sprincul - Memory", () => {
 	test("unmounted models are garbage collected", async () => {
 		const { el, refs } = mountEverything(false);
 
-		Sprincul.unmountAll(el);
+		Sprincul.unmount(el);
 		el.remove();
 
 		for (const ref of refs) expect(await isCollected(ref)).toBe(true);
@@ -68,7 +68,7 @@ describe("Sprincul - Memory", () => {
 	test("unmounted models are garbage collected after an async teardown", async () => {
 		const { el, refs } = mountEverything(true);
 
-		await Sprincul.unmountAll(el);
+		await Sprincul.unmount(el);
 		el.remove();
 
 		for (const ref of refs) expect(await isCollected(ref)).toBe(true);
