@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Sprincul Demo</title>
+		<link rel="icon" type="image/png" sizes="32x32" href="./images/favicon-32.png" />
+		<link rel="apple-touch-icon" href="./images/apple-touch-icon.png" />
+		<link rel="stylesheet" href="./styles.css" />
+		<!-- Built from src by examples/serve.ts and the Pages workflow. In your app, point this at a release, e.g. https://esm.sh/gh/ShakimaMF/sprincul@v0.4.0 -->
+		<script type="importmap">
+			{ "imports": { "sprincul": "./sprincul.js" } }
+		</script>
+		<link rel="modulepreload" href="./register.js" />
+		<script type="module" src="./register.js"></script>
+	</head>
+	<body>
+		<header class="site-header">
+			<a class="logo" href="./">
+				<img src="./images/sprincul-logo.png" alt="Sprincul" width="398" height="125" />
+				<span>Demo</span>
+			</a>
+			<div data-model="CartToggle">
+				<button type="button" class="cart-toggle" onclick="open">
+					<svg class="icon" aria-hidden="true">
+						<use href="./images/icon-spritesheet.svg#basket-shopping" />
+					</svg>
+					Cart <span class="count" data-bind-count="showCount" hidden></span>
+				</button>
+			</div>
+		</header>
+
+		<main class="catalog" data-model="Catalog">
+			<p class="demo-note">
+				Try a discount: in the cart, open "Have a discount code?" and enter <code>XXOFF</code> where XX is any
+				number from 1 to 100, such as <code>25OFF</code>, and watch each item and the total update.
+			</p>
+			<form class="filters" data-model="ProductFilters" onsubmit="preventSubmit">
+				<label class="search">
+					<svg class="icon" aria-hidden="true"><use href="./images/icon-spritesheet.svg#search-shine" /></svg>
+					<input
+						type="search"
+						data-ref="search"
+						oninput="update"
+						placeholder="Search products"
+						aria-label="Search products"
+					/>
+				</label>
+				<div class="select">
+					<select data-ref="category" onchange="update" aria-label="Category">
+						<option value="all">All categories</option>
+						<option value="pantry">Pantry</option>
+						<option value="hair">Hair</option>
+						<option value="skincare">Skincare</option>
+						<option value="accessories">Accessories</option>
+					</select>
+					<svg class="icon" aria-hidden="true"><use href="./images/icon-spritesheet.svg#angle-down" /></svg>
+				</div>
+			</form>
+
+			<p class="summary" data-bind-shown="showCount" data-bind-total="showCount">Showing 8 of 8 products</p>
+
+			<div class="grid">
+				<article
+					class="product"
+					data-model="ProductCard"
+					data-ref="product"
+					data-id="chili-sauce"
+					data-price="9"
+					data-bind-visible="showVisible"
+				>
+					<img
+						class="thumb"
+						data-ref="photo"
+						src="./images/sauce-bottle-250.jpg"
+						alt=""
+						width="250"
+						height="250"
+					/>
+					<p class="category" data-bind-category="showCategory">Pantry</p>
+					<h3 data-bind-name="showName">Smoky Chili Sauce</h3>
+					<p class="price">$9.00</p>
+					<p class="badge" data-bind-in-cart="showInCart" hidden></p>
+					<div class="actions">
+						<div class="stepper">
+							<button type="button" onclick="decrement" aria-label="Decrease quantity">-</button>
+							<output data-bind-qty="showQty">1</output>
+							<button type="button" onclick="increment" aria-label="Increase quantity">+</button>
+						</div>
+						<button type="button" class="primary" onclick="add">Add to cart</button>
+					</div>
+				</article>
+				<article
+					class="product"
+					data-model="ProductCard"
+					data-ref="product"
+					data-id="texture-spray"
+					data-price="24"
+					data-bind-visible="showVisible"
+				>
+					<img
+						class="thumb"
+						data-ref="photo"
+						src="./images/spray-can-250.jpg"
+						alt=""
+						width="250"
+						height="250"
+					/>
+					<p class="category" data-bind-category="showCategory">Hair</p>
+					<h3 data-bind-name="showName">Dry Texture Spray</h3>
+					<p class="price">$24.00</p>
+					<p class="badge" data-bind-in-cart="showInCart" hidden></p>
+					<div class="actions">
+						<div class="stepper">
+							<button type="button" onclick="decrement" aria-label="Decrease quantity">-</button>
+							<output data-bind-qty="showQty">1</output>
+							<button type="button" onclick="increment" aria-label="Increase quantity">+</button>
+						</div>
+						<button type="button" class="primary" onclick="add">Add to cart</button>
+					</div>
+				</article>
+				<article
+					class="product"
+					data-model="ProductCard"
+					data-ref="product"
+					data-id="toner-serum"
+					data-price="46"
+					data-bind-visible="showVisible"
+				>
+					<img
+						class="thumb"
+						data-ref="photo"
+						src="./images/bottle-duo-250.webp"
+						alt=""
+						width="250"
+						height="250"
+					/>
+					<p class="category" data-bind-category="showCategory">Skincare</p>
+					<h3 data-bind-name="showName">Toner &amp; Serum Set</h3>
+					<p class="price">$46.00</p>
+					<p class="badge" data-bind-in-cart="showInCart" hidden></p>
+					<div class="actions">
+						<div class="stepper">
+							<button type="button" onclick="decrement" aria-label="Decrease quantity">-</button>
+							<output data-bind-qty="showQty">1</output>
+							<button type="button" onclick="increment" aria-label="Increase quantity">+</button>
+						</div>
+						<button type="button" class="primary" onclick="add">Add to cart</button>
+					</div>
+				</article>
+				<article
+					class="product"
+					data-model="ProductCard"
+					data-ref="product"
+					data-id="protein-blend"
+					data-price="32"
+					data-bind-visible="showVisible"
+				>
+					<img class="thumb" data-ref="photo" src="./images/pouch-250.webp" alt="" width="250" height="250" />
+					<p class="category" data-bind-category="showCategory">Pantry</p>
+					<h3 data-bind-name="showName">Daily Protein Blend</h3>
+					<p class="price">$32.00</p>
+					<p class="badge" data-bind-in-cart="showInCart" hidden></p>
+					<div class="actions">
+						<div class="stepper">
+							<button type="button" onclick="decrement" aria-label="Decrease quantity">-</button>
+							<output data-bind-qty="showQty">1</output>
+							<button type="button" onclick="increment" aria-label="Increase quantity">+</button>
+						</div>
+						<button type="button" class="primary" onclick="add">Add to cart</button>
+					</div>
+				</article>
+				<article
+					class="product"
+					data-model="ProductCard"
+					data-ref="product"
+					data-id="body-wash"
+					data-price="22"
+					data-bind-visible="showVisible"
+				>
+					<img
+						class="thumb"
+						data-ref="photo"
+						src="./images/black-bottle-250.webp"
+						alt=""
+						width="250"
+						height="250"
+					/>
+					<p class="category" data-bind-category="showCategory">Skincare</p>
+					<h3 data-bind-name="showName">Charcoal Body Wash</h3>
+					<p class="price">$22.00</p>
+					<p class="badge" data-bind-in-cart="showInCart" hidden></p>
+					<div class="actions">
+						<div class="stepper">
+							<button type="button" onclick="decrement" aria-label="Decrease quantity">-</button>
+							<output data-bind-qty="showQty">1</output>
+							<button type="button" onclick="increment" aria-label="Increase quantity">+</button>
+						</div>
+						<button type="button" class="primary" onclick="add">Add to cart</button>
+					</div>
+				</article>
+				<article
+					class="product"
+					data-model="ProductCard"
+					data-ref="product"
+					data-id="hair-duo"
+					data-price="38"
+					data-bind-visible="showVisible"
+				>
+					<img
+						class="thumb"
+						data-ref="photo"
+						src="./images/pump-bottles-250.webp"
+						alt=""
+						width="250"
+						height="250"
+					/>
+					<p class="category" data-bind-category="showCategory">Hair</p>
+					<h3 data-bind-name="showName">Shampoo &amp; Conditioner Duo</h3>
+					<p class="price">$38.00</p>
+					<p class="badge" data-bind-in-cart="showInCart" hidden></p>
+					<div class="actions">
+						<div class="stepper">
+							<button type="button" onclick="decrement" aria-label="Decrease quantity">-</button>
+							<output data-bind-qty="showQty">1</output>
+							<button type="button" onclick="increment" aria-label="Increase quantity">+</button>
+						</div>
+						<button type="button" class="primary" onclick="add">Add to cart</button>
+					</div>
+				</article>
+				<article
+					class="product"
+					data-model="ProductCard"
+					data-ref="product"
+					data-id="hand-cream"
+					data-price="18"
+					data-bind-visible="showVisible"
+				>
+					<img
+						class="thumb"
+						data-ref="photo"
+						src="./images/cream-tube-250.webp"
+						alt=""
+						width="250"
+						height="250"
+					/>
+					<p class="category" data-bind-category="showCategory">Skincare</p>
+					<h3 data-bind-name="showName">No. 9 Hand Cream</h3>
+					<p class="price">$18.00</p>
+					<p class="badge" data-bind-in-cart="showInCart" hidden></p>
+					<div class="actions">
+						<div class="stepper">
+							<button type="button" onclick="decrement" aria-label="Decrease quantity">-</button>
+							<output data-bind-qty="showQty">1</output>
+							<button type="button" onclick="increment" aria-label="Increase quantity">+</button>
+						</div>
+						<button type="button" class="primary" onclick="add">Add to cart</button>
+					</div>
+				</article>
+				<article
+					class="product"
+					data-model="ProductCard"
+					data-ref="product"
+					data-id="gift-bag"
+					data-price="6"
+					data-bind-visible="showVisible"
+				>
+					<img
+						class="thumb"
+						data-ref="photo"
+						src="./images/shopping-bag-250.webp"
+						alt=""
+						width="250"
+						height="250"
+					/>
+					<p class="category" data-bind-category="showCategory">Accessories</p>
+					<h3 data-bind-name="showName">Signature Gift Bag</h3>
+					<p class="price">$6.00</p>
+					<p class="badge" data-bind-in-cart="showInCart" hidden></p>
+					<div class="actions">
+						<div class="stepper">
+							<button type="button" onclick="decrement" aria-label="Decrease quantity">-</button>
+							<output data-bind-qty="showQty">1</output>
+							<button type="button" onclick="increment" aria-label="Increase quantity">+</button>
+						</div>
+						<button type="button" class="primary" onclick="add">Add to cart</button>
+					</div>
+				</article>
+			</div>
+
+			<p class="no-results" data-bind-shown="showEmpty" hidden>No products match your search.</p>
+		</main>
+
+		<aside class="side-cart" data-model="SideCart" data-bind-open="showOpen" inert>
+			<div class="backdrop" onclick="close"></div>
+			<div class="panel" role="dialog" aria-modal="true" aria-labelledby="cart-title">
+				<header>
+					<h2 id="cart-title">Your cart</h2>
+					<button type="button" class="close" data-ref="close" onclick="close" aria-label="Close cart">
+						<svg class="icon" aria-hidden="true"><use href="./images/icon-spritesheet.svg#xmark" /></svg>
+					</button>
+				</header>
+
+				<p class="empty" data-bind-count="showEmpty" data-bind-placed="showEmpty">Your cart is empty.</p>
+				<ul class="lines" data-bind-lines="renderLines" data-bind-percent-off="renderLines"></ul>
+				<button type="button" class="clear" onclick="clear" data-bind-count="showClear" hidden>
+					Clear cart
+				</button>
+
+				<template data-ref="line">
+					<li class="line">
+						<img class="thumb" alt="" width="48" height="48" />
+						<div class="details">
+							<p class="name"></p>
+							<p class="price"><s class="was" hidden></s> <span class="now"></span></p>
+						</div>
+						<div class="stepper">
+							<button type="button" onclick="decrement" aria-label="Decrease quantity">-</button>
+							<output></output>
+							<button type="button" onclick="increment" aria-label="Increase quantity">+</button>
+						</div>
+						<button type="button" class="remove" onclick="remove">Remove</button>
+					</li>
+				</template>
+
+				<footer>
+					<button
+						type="button"
+						class="code-toggle"
+						onclick="toggleCode"
+						data-bind-code-open="showCodeToggle"
+						aria-expanded="false"
+					>
+						Have a discount code?
+						<svg class="icon" aria-hidden="true">
+							<use href="./images/icon-spritesheet.svg#angle-down" />
+						</svg>
+					</button>
+					<form class="discount-form" onsubmit="applyCode" data-bind-code-open="showCodeForm" hidden>
+						<input data-ref="code" placeholder="Discount code" aria-label="Discount code" />
+						<button type="submit">Apply</button>
+					</form>
+					<p class="code-error" data-bind-code-error="showCodeError" hidden></p>
+					<p class="code-applied" data-bind-percent-off="showApplied" hidden>
+						<span></span> <button type="button" onclick="removeCode">Remove</button>
+					</p>
+
+					<p class="row">Subtotal <strong data-bind-subtotal="showSubtotal">$0.00</strong></p>
+					<p class="row discount" data-bind-discount="showDiscount" hidden><span></span> <strong></strong></p>
+					<p class="row total">Total <strong data-bind-total="showTotal">$0.00</strong></p>
+					<button type="button" class="primary" onclick="checkout" data-bind-count="toggleCheckout">
+						Checkout
+					</button>
+				</footer>
+			</div>
+		</aside>
+
+		<script type="module" src="./main.js"></script>
+	</body>
+</html>

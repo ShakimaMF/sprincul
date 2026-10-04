@@ -47,6 +47,54 @@ describe("Sprincul - Data Bindings", () => {
 			expect(div.getAttribute("title")).toBe("New Title");
 			expect(div.textContent).toBe("New Content");
 		});
+
+		test("converts dashed names to camelCase state keys like dataset", async () => {
+			container.innerHTML = html`
+				<div data-model="TestModel">
+					<button onclick="rename">Rename</button>
+					<span data-bind-button-text="showLabel"></span>
+					<span data-bind-buttontext="showLower"></span>
+					<span data-bind-item-2="showItem"></span>
+				</div>
+			`;
+
+			class TestModel extends SprinculModel {
+				beforeInit() {
+					this.state.buttonText = "Save";
+					this.state.buttontext = "lower";
+					this.state["item-2"] = "second";
+				}
+
+				rename() {
+					this.state.buttonText = "Saved";
+				}
+
+				showLabel(el: HTMLElement) {
+					el.textContent = this.state.buttonText;
+				}
+
+				showLower(el: HTMLElement) {
+					el.textContent = this.state.buttontext;
+				}
+
+				showItem(el: HTMLElement) {
+					el.textContent = this.state["item-2"];
+				}
+			}
+
+			Sprincul.register("TestModel", TestModel);
+			Sprincul.init();
+
+			const [label, lower, item] = Array.from(container.querySelectorAll("span"));
+			expect(label.textContent).toBe("Save");
+			expect(lower.textContent).toBe("lower");
+			expect(item.textContent).toBe("second");
+
+			(container.querySelector("button") as HTMLButtonElement).click();
+			await waitForDomUpdate();
+
+			expect(label.textContent).toBe("Saved");
+		});
 	});
 
 	describe("Event handlers", () => {
@@ -88,7 +136,7 @@ describe("Sprincul - Data Bindings", () => {
 
 		// Note: keyboard/input synthetic events in happy-dom are unreliable; click is covered above.
 
-		test("leaves non-event attributes that start with \"on\" alone", async () => {
+		test('leaves non-event attributes that start with "on" alone', async () => {
 			container.innerHTML = html`
 				<div data-model="FlagModel">
 					<button onclick="handleClick" once one only online data-keep="yes">Click Me</button>
@@ -277,7 +325,7 @@ describe("Sprincul - Data Bindings", () => {
 				}
 
 				renderList(el: HTMLElement) {
-					el.innerHTML = this.state.items.map((item) => `<li>${item.name}</li>`).join("");
+					el.innerHTML = this.state.items.map((item: { name: string }) => `<li>${item.name}</li>`).join("");
 				}
 			}
 
@@ -309,7 +357,7 @@ describe("Sprincul - Data Bindings", () => {
 				}
 
 				renderList(el: HTMLElement) {
-					el.innerHTML = this.state.items.map((item) => `<li>${item.name}</li>`).join("");
+					el.innerHTML = this.state.items.map((item: { name: string }) => `<li>${item.name}</li>`).join("");
 				}
 			}
 
@@ -391,5 +439,19 @@ describe("Sprincul - Data Bindings", () => {
 
 			errorSpy.mockRestore();
 		});
+	});
+
+	test("the devMode warning for a missing callback names the attribute as written", () => {
+		const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<span data-bind-button-text="missingFn"></span>`;
+		container.appendChild(el);
+		Sprincul.mount(el, class extends SprinculModel {}, { devMode: true });
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			'[Sprincul] Binding callback "missingFn" not found for data-bind-button-text.',
+		);
+		warnSpy.mockRestore();
 	});
 });

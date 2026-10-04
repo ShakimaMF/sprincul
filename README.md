@@ -46,7 +46,7 @@ Sprincul is distributed from GitHub, pinned to a release tag. No npm package.
 
 ```js
 // main.js
-import { Sprincul } from "https://esm.sh/gh/ShakimaMF/sprincul@v0.3.0";
+import { Sprincul } from "https://esm.sh/gh/ShakimaMF/sprincul@v0.4.0";
 import Counter from "./Counter.js";
 
 Sprincul.register("Counter", Counter);
@@ -56,18 +56,18 @@ Sprincul.init();
 ### Using a package manager
 
 ```bash
-npm install github:ShakimaMF/sprincul#v0.3.0
+npm install github:ShakimaMF/sprincul#v0.4.0
 # or
-pnpm add github:ShakimaMF/sprincul#v0.3.0
+pnpm add github:ShakimaMF/sprincul#v0.4.0
 # or
-bun add github:ShakimaMF/sprincul#v0.3.0
+bun add github:ShakimaMF/sprincul#v0.4.0
 ```
 
 ```js
 import { Sprincul } from "sprincul";
 ```
 
-Swap `v0.3.0` for whichever [release tag](https://github.com/ShakimaMF/sprincul/tags) you want.
+Swap `v0.4.0` for whichever [release tag](https://github.com/ShakimaMF/sprincul/tags) you want.
 
 ## Learn more
 
@@ -76,6 +76,9 @@ The full reference lives in the [wiki](https://github.com/ShakimaMF/sprincul/wik
 - [Getting Started](https://github.com/ShakimaMF/sprincul/wiki/Getting-Started) - how it works, installation, and a quick start walkthrough
 - [Data Bindings](https://github.com/ShakimaMF/sprincul/wiki/Data-Bindings) - connect `this.state` to the DOM with `data-bind-<prop>`
 - [Events](https://github.com/ShakimaMF/sprincul/wiki/Events) - wire up `onclick`, `oninput`, and other native event attributes
+- [Model Events](https://github.com/ShakimaMF/sprincul/wiki/Model-Events) - `$emit`, `$listen`, and `$signal` for talking between models and cleaning up automatically
+- [Refs](https://github.com/ShakimaMF/sprincul/wiki/Refs) - read elements with `data-ref`, `$ref()`, and `$refs()`
+- [Model Data](https://github.com/ShakimaMF/sprincul/wiki/Model-Data) - read typed config from the model root's data attributes with `$data()`
 - [Computed Properties](https://github.com/ShakimaMF/sprincul/wiki/Computed-Properties) - derived state with `addComputedProp`
 - [Mounting & Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting) - `init()`, `mount()`, `unmount()`, `destroyAll()`, and their options
 - [Lifecycle & Hydration](https://github.com/ShakimaMF/sprincul/wiki/Lifecycle-and-Hydration) - `beforeInit`, `afterInit`, `beforeDestroy`, cloaking, and hydrating from server-rendered defaults
@@ -87,7 +90,7 @@ The full reference lives in the [wiki](https://github.com/ShakimaMF/sprincul/wik
 
 ## Examples
 
-For more usage patterns, see the tests under `tests`.
+Try the [live demo](https://shakimamf.github.io/sprincul/), a product listing with a side cart. Its source is in [`examples/`](examples); run it locally with `bun run example`. For more usage patterns, see the tests under `tests`.
 
 ## Tips for success
 

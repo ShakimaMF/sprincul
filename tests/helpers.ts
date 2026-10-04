@@ -3,11 +3,13 @@
 import { rmSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-type IsolatedApi = { Sprincul: any; SprinculModel: any; cleanup: () => void };
+import type * as Api from "../src/index.ts";
+
+type IsolatedApi = { Sprincul: any; SprinculModel: typeof Api.SprinculModel; cleanup: () => void };
 
 declare global {
 	var Sprincul: any;
-	var SprinculModel: any;
+	var SprinculModel: typeof Api.SprinculModel;
 	var container: HTMLElement;
 }
 
@@ -15,6 +17,17 @@ let currentIsolatedApi: IsolatedApi | null = null;
 
 export function html(strings: TemplateStringsArray, ...values: unknown[]) {
 	return String.raw({ raw: strings.raw }, ...values);
+}
+
+/** Runs init() in devMode and returns the model mounted on each element, for tests that need instances. */
+export function initInstances(root: HTMLElement): Map<Element, any> {
+	const instances = new Map<Element, any>();
+	Sprincul.init({
+		root,
+		devMode: true,
+		onReady: (models: any[]) => models.forEach((model) => instances.set(model.element, model.instance)),
+	});
+	return instances;
 }
 
 export async function waitForDomUpdate() {

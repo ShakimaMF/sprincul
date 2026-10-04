@@ -2,7 +2,11 @@ import { computed, type ReadableAtom, type MapStore } from "nanostores";
 import type SprinculModel from "./SprinculModel";
 import type { BoundDefaults, DomListenerRecord } from "./types";
 
-type ProcessOptions = { defaults?: BoundDefaults; deferCallbacks: boolean; viaWire?: boolean };
+/**
+ * `deferCallbacks` holds initial callbacks until beforeInit finishes; `deferToFrame` runs them in the next
+ * frame's update pass instead, for wired content that isn't in the model yet.
+ */
+type ProcessOptions = { defaults?: BoundDefaults; deferCallbacks: boolean; deferToFrame?: boolean; viaWire?: boolean };
 
 /** `viaWire` marks bindings registered by wire() rather than the initial scan, so unwire() releases only what wiring added. */
 type BindingRecord = { prop: string; element: HTMLElement; callback: string; viaWire: boolean };
@@ -21,6 +25,8 @@ export class SprinculCore {
 	#pendingUpdates = new Set<string>();
 	#updateScheduled: boolean = false;
 	#pendingInitialCallbacks: Array<BindingRecord> = [];
+	/** Initial callbacks for wired content that wasn't in the model yet, run in the next frame's update pass */
+	#frameCallbacks: Array<BindingRecord> = [];
 	#pendingListeners: Array<{ element: HTMLElement; eventName: string; methodName: string }> = [];
 	readonly #isBrowser: boolean;
 
@@ -112,8 +118,23 @@ export class SprinculCore {
 		return defaults;
 	}
 
-	processAddedElement(element: HTMLElement) {
-		this.#processTree(element, { deferCallbacks: false, viaWire: true });
+	processAddedElement(content: HTMLElement | DocumentFragment) {
+		if (this.instance.$el.contains(content)) {
+			this.#processTree(content, { deferCallbacks: false, viaWire: true });
+			return;
+		}
+
+		// On the page but outside this model: it belongs to whichever model contains it
+		if (content.isConnected) {
+			this.#warn("wire() was given content on the page outside this model, so nothing was bound.");
+			return;
+		}
+
+		/*
+		 * Not appended yet (a fragment or detached element): bind it to this model now and render it in the
+		 * next frame, by which time it's usually been appended. Without a browser frame, render it now.
+		 */
+		this.#processTree(content, { deferCallbacks: false, deferToFrame: this.#isBrowser, viaWire: true });
 	}
 
 	/**
@@ -151,10 +172,9 @@ export class SprinculCore {
 			this.#domListeners.delete(record);
 		});
 
-		this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter(
-			(binding) => !isInScope(binding.element),
-		);
+		this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter((binding) => !isInScope(binding.element));
 		this.#pendingListeners = this.#pendingListeners.filter((listener) => !isInScope(listener.element));
+		this.#frameCallbacks = this.#frameCallbacks.filter((binding) => !isInScope(binding.element));
 	}
 
 	/**
@@ -179,24 +199,21 @@ export class SprinculCore {
 		);
 	}
 
-	#processTree(container: HTMLElement, options: ProcessOptions) {
-		const isNestedModelRoot = container.hasAttribute("data-model") && container !== this.instance.$el;
-		const closestModelElement = container.closest("[data-model]");
-		const withinThisModel = container === this.instance.$el || closestModelElement === this.instance.$el;
+	#processTree(container: HTMLElement | DocumentFragment, options: ProcessOptions) {
+		/*
+		 * An element is this model's when its nearest [data-model] (itself included) is this model's root.
+		 * Content not in the model yet has no such root above it, so there it's the elements with none at all.
+		 * Either way, nested model roots and everything inside them belong to their own instance.
+		 */
+		const owner = this.instance.$el.contains(container) ? this.instance.$el : null;
+		const isOwned = (element: Element) => element.closest("[data-model]") === owner;
 
-		if (!isNestedModelRoot && withinThisModel) {
+		if (container instanceof HTMLElement && isOwned(container)) {
 			this.#processElementBindings(container, options);
 		}
 
 		container.querySelectorAll("*").forEach((el) => {
-			const element = el as HTMLElement;
-			const closest = element.closest("[data-model]");
-
-			// Skip nested model elements - they will be processed by their own instance
-			if (element.hasAttribute("data-model") && element !== container) return;
-			if (closest !== this.instance.$el) return;
-
-			this.#processElementBindings(element, options);
+			if (isOwned(el)) this.#processElementBindings(el as HTMLElement, options);
 		});
 	}
 
@@ -248,17 +265,28 @@ export class SprinculCore {
 		if (!this.#isBrowser) return;
 
 		this.#pendingUpdates.add(key);
-		if (!this.#updateScheduled) {
-			this.#updateScheduled = true;
-			requestAnimationFrame(() => {
-				// One pass per frame: an element bound to both a source prop and a computed derived
-				// from it would otherwise run the same callback once per prop
-				const updated = new Map<HTMLElement, Set<string>>();
-				this.#pendingUpdates.forEach((prop) => this.#updateDependentElements(prop, updated));
-				this.#pendingUpdates.clear();
-				this.#updateScheduled = false;
+		this.#scheduleFrame();
+	}
+
+	#scheduleFrame() {
+		if (this.#updateScheduled) return;
+		this.#updateScheduled = true;
+
+		requestAnimationFrame(() => {
+			// One pass per frame: an element bound to both a source prop and a computed derived
+			// from it would otherwise run the same callback once per prop
+			const updated = new Map<HTMLElement, Set<string>>();
+
+			const frameCallbacks = this.#frameCallbacks;
+			this.#frameCallbacks = [];
+			frameCallbacks.forEach((binding) => {
+				if (this.#markUpdated(updated, binding)) this.#updateElement(binding);
 			});
-		}
+
+			this.#pendingUpdates.forEach((prop) => this.#updateDependentElements(prop, updated));
+			this.#pendingUpdates.clear();
+			this.#updateScheduled = false;
+		});
 	}
 
 	destroy() {
@@ -279,14 +307,26 @@ export class SprinculCore {
 		// Drop anything setupBindings() queued, in case destroy() ran while beforeInit was pending
 		this.#pendingInitialCallbacks = [];
 		this.#pendingListeners = [];
+		this.#frameCallbacks = [];
 	}
 
 	// Process all data-bind-* attributes and on* event handlers for an element
 	#processElementBindings(element: HTMLElement, options: ProcessOptions) {
 		Array.from(element.attributes).forEach((attr) => {
+			// Refs are looked up when read; the scan only flags names that could never match
+			if (attr.name === "data-ref") {
+				if (/\s/.test(attr.value.trim())) {
+					this.#warn(`data-ref="${attr.value}" contains whitespace; a ref takes a single name.`);
+				}
+				return;
+			}
+
 			// Handle data-bind-* attributes for reactive property bindings (e.g. data-bind-<prop>="callbackFn")
 			if (attr.name.startsWith("data-bind-")) {
-				const propertyName = attr.name.substring("data-bind-".length); // The state property to watch
+				// The state property to watch, named by the same rule as dataset (data-bind-button-text -> buttonText)
+				const propertyName = attr.name
+					.substring("data-bind-".length)
+					.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
 				const callbackName = attr.value; // The callback to call when it changes
 
 				const alreadyBound = this.#trackBinding(propertyName, element, callbackName, options.viaWire === true);
@@ -297,7 +337,8 @@ export class SprinculCore {
 				// Capture server-rendered content before any callback touches it (first element wins)
 				if (options.defaults && !Object.prototype.hasOwnProperty.call(options.defaults, propertyName)) {
 					const isCheckable =
-						element instanceof HTMLInputElement && (element.type === "checkbox" || element.type === "radio");
+						element instanceof HTMLInputElement &&
+						(element.type === "checkbox" || element.type === "radio");
 					const isMultiSelect = element instanceof HTMLSelectElement && element.multiple;
 
 					options.defaults[propertyName] = {
@@ -315,17 +356,23 @@ export class SprinculCore {
 
 				const bindFn = Reflect.get(this.instance, callbackName);
 				if (typeof bindFn !== "function") {
-					this.#warn(`Binding callback "${callbackName}" not found for data-bind-${propertyName}.`);
+					this.#warn(`Binding callback "${callbackName}" not found for ${attr.name}.`);
 					return;
 				}
 
+				const record = {
+					prop: propertyName,
+					element,
+					callback: callbackName,
+					viaWire: options.viaWire === true,
+				};
 				if (options.deferCallbacks) {
-					this.#pendingInitialCallbacks.push({
-						prop: propertyName,
-						element,
-						callback: callbackName,
-						viaWire: options.viaWire === true,
-					});
+					this.#pendingInitialCallbacks.push(record);
+					return;
+				}
+				if (options.deferToFrame) {
+					this.#frameCallbacks.push(record);
+					this.#scheduleFrame();
 					return;
 				}
 
@@ -441,6 +488,11 @@ export class SprinculCore {
 				console.error(`Error in binding callback "${binding.callback}":`, error);
 			}
 		}
+	}
+
+	/** Dev-mode warning on behalf of the model. */
+	warn(message: string) {
+		this.#warn(message);
 	}
 
 	#warn(message: string) {

@@ -46,6 +46,30 @@ describe("Sprincul - Server-rendered defaults", () => {
 		expect(span?.textContent).toBe("Hello from server");
 	});
 
+	test("defaults are keyed by the camelCase state name", () => {
+		container.innerHTML = html`
+			<div data-model="TestModel">
+				<span data-bind-button-text="noop">Save</span>
+			</div>
+		`;
+
+		let receivedDefaults: any;
+
+		class TestModel extends SprinculModel {
+			beforeInit(defaults: any) {
+				receivedDefaults = defaults;
+			}
+
+			noop() {}
+		}
+
+		Sprincul.register("TestModel", TestModel);
+		Sprincul.init();
+
+		expect(receivedDefaults.buttonText.text).toBe("Save");
+		expect(receivedDefaults["button-text"]).toBeUndefined();
+	});
+
 	test("first element bound to a property wins when duplicated", () => {
 		container.innerHTML = html`
 			<div data-model="TestModel">

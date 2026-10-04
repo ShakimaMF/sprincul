@@ -15,7 +15,7 @@ describe("Sprincul.store", () => {
 	test("subscribe fires only after the first change", async () => {
 		const seen: Array<string | undefined> = [];
 
-		const unsub = Sprincul.store.subscribe("k", (value) => {
+		const unsub = Sprincul.store.subscribe("k", (value: string | undefined) => {
 			seen.push(value);
 		});
 

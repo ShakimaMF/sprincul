@@ -145,6 +145,67 @@ describe("Sprincul - Initialization", () => {
 		expect(cartCount?.textContent).toBe("3");
 	});
 
+	test("registerAll takes a module namespace, as from import * as models", () => {
+		container.innerHTML = html`
+			<div data-model="Greeting"><span data-bind-text="showText"></span></div>
+			<div data-model="Farewell"><span data-bind-text="showText"></span></div>
+		`;
+
+		class Greeting extends SprinculModel {
+			beforeInit() {
+				this.state.text = "Hello";
+			}
+
+			showText(el: HTMLElement) {
+				el.textContent = this.state.text;
+			}
+		}
+
+		class Farewell extends Greeting {
+			beforeInit() {
+				this.state.text = "Goodbye";
+			}
+		}
+
+		// Shaped like a module namespace: null prototype, a Symbol.toStringTag, and frozen
+		const models = Object.freeze(
+			Object.assign(Object.create(null), { Greeting, Farewell, [Symbol.toStringTag]: "Module" }),
+		);
+
+		Sprincul.registerAll(models);
+		Sprincul.init();
+
+		const spans = container.querySelectorAll("span");
+		expect(spans[0]?.textContent).toBe("Hello");
+		expect(spans[1]?.textContent).toBe("Goodbye");
+	});
+
+	test("registerAll skips values that aren't models, with a warning", () => {
+		container.innerHTML = html`<div data-model="Greeting"><span data-bind-text="showText"></span></div>`;
+
+		class Greeting extends SprinculModel {
+			beforeInit() {
+				this.state.text = "Hello";
+			}
+
+			showText(el: HTMLElement) {
+				el.textContent = this.state.text;
+			}
+		}
+
+		const warn = spyOn(console, "warn").mockImplementation(() => {});
+		Sprincul.registerAll({ Greeting, helper: () => 1, version: "1", Plain: class {} });
+		Sprincul.init();
+
+		expect(container.querySelector("span")?.textContent).toBe("Hello");
+		expect(warn.mock.calls.map(([message]) => message)).toEqual([
+			'[Sprincul] registerAll() skipped "helper": it isn\'t a SprinculModel class.',
+			'[Sprincul] registerAll() skipped "version": it isn\'t a SprinculModel class.',
+			'[Sprincul] registerAll() skipped "Plain": it isn\'t a SprinculModel class.',
+		]);
+		warn.mockRestore();
+	});
+
 	test("removes data-cloaked attribute after initialization", async () => {
 		container.innerHTML = html`
 			<div data-model="TestModel" data-cloaked>
