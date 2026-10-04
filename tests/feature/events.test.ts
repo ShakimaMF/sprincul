@@ -115,6 +115,21 @@ describe("Sprincul - Model events", () => {
 		expect(removeSpy.mock.calls.filter(([type]) => type === "abort")).toHaveLength(2);
 	});
 
+	test("a once listener releases its hold on $signal after it fires", () => {
+		const el = document.createElement("div");
+		container.appendChild(el);
+		const instance = Sprincul.mount(el, class extends SprinculModel {});
+		const removeSpy = spyOn(instance.$signal, "removeEventListener");
+		const seen: string[] = [];
+
+		instance.$listen(el, "ping", (e: CustomEvent) => seen.push(e.detail), { once: true });
+		el.dispatchEvent(new CustomEvent("ping", { detail: "first" }));
+		el.dispatchEvent(new CustomEvent("ping", { detail: "second" }));
+
+		expect(seen).toEqual(["first"]);
+		expect(removeSpy.mock.calls.filter(([type]) => type === "abort")).toHaveLength(1);
+	});
+
 	test("$emit with a native event name warns in devMode", () => {
 		const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
 

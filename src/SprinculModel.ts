@@ -122,7 +122,8 @@ export default class SprinculModel {
 	 */
 	$refs<T extends HTMLElement = HTMLElement>(name: string): T[] {
 		const matches = Array.from(this.$el.querySelectorAll<T>("[data-ref]")).filter(
-			(element) => element.getAttribute("data-ref")!.trim() === name && SprinculModel.#ownerOf(element) === this.$el,
+			(element) =>
+				element.getAttribute("data-ref")!.trim() === name && SprinculModel.#ownerOf(element) === this.$el,
 		);
 
 		if (matches.length === 0 && this.$el.getAttribute("data-ref")?.trim() === name) {
@@ -284,8 +285,12 @@ export default class SprinculModel {
 		options?: AddEventListenerOptions,
 	): () => void;
 	$listen(...args: any[]): () => void {
-		const [target, type, handler, options]: [EventTarget, string, (event: Event) => void, AddEventListenerOptions?] =
-			typeof args[0] === "string" ? [this.$el, args[0], args[1]] : [args[0], args[1], args[2], args[3]];
+		const [target, type, handler, options]: [
+			EventTarget,
+			string,
+			(event: Event) => void,
+			AddEventListenerOptions?,
+		] = typeof args[0] === "string" ? [this.$el, args[0], args[1]] : [args[0], args[1], args[2], args[3]];
 
 		// Each listener gets its own controller following $signal, so removing it early also detaches it from $signal
 		const signal = this.$signal;
@@ -301,10 +306,15 @@ export default class SprinculModel {
 			signal.addEventListener("abort", stop, { once: true });
 		}
 
-		target.addEventListener(type, (event: Event) => handler.call(this, event), {
-			...options,
-			signal: controller.signal,
-		});
+		target.addEventListener(
+			type,
+			(event: Event) => {
+				// A once listener is gone after it fires, so release its hold on $signal too
+				if (options?.once) stop();
+				handler.call(this, event);
+			},
+			{ ...options, signal: controller.signal },
+		);
 		return stop;
 	}
 

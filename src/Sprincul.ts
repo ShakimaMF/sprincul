@@ -394,19 +394,25 @@ export default class Sprincul {
 	 * `beforeDestroy()`. With no async hooks, everything is torn down before this returns.
 	 */
 	static #destroyInOrder(models: SprinculModel[]): Promise<void> {
-		const pending = new Map<SprinculModel, Promise<void>>();
+		// Keyed by root element, so each model only walks up its own model ancestors
+		const pending = new Map<Element, Promise<void>>();
 
 		models.forEach((model) => {
 			const ancestors: Promise<void>[] = [];
-			pending.forEach((teardown, other) => {
-				if (other.$el.contains(model.$el)) ancestors.push(teardown);
-			});
+			for (
+				let ancestor = model.$el.parentElement?.closest("[data-model]");
+				ancestor;
+				ancestor = ancestor.parentElement?.closest("[data-model]")
+			) {
+				const teardown = pending.get(ancestor);
+				if (teardown) ancestors.push(teardown);
+			}
 
 			const teardown =
 				ancestors.length === 0
 					? Sprincul.#destroyInstance(model)
 					: Promise.all(ancestors).then(() => Sprincul.#destroyInstance(model));
-			if (teardown) pending.set(model, teardown);
+			if (teardown) pending.set(model.$el, teardown);
 		});
 
 		return Promise.all(pending.values()).then(() => undefined);
@@ -455,20 +461,19 @@ export default class Sprincul {
 		return teardown;
 	}
 
+	/** Never throws, so one failing model can't stop the rest of a teardown or leave its element unmountable. */
 	static #finishDestroy(model: SprinculModel): void {
-		// After beforeDestroy has settled, so it could still rely on what $signal guards
-		abortSignal(model);
-
-		const core = getCore(model);
-		if (core) {
-			try {
-				core.destroy();
-			} finally {
-				deleteCore(model);
-			}
+		try {
+			// After beforeDestroy has settled, so it could still rely on what $signal guards
+			abortSignal(model);
+			getCore(model)?.destroy();
+		} catch (e) {
+			console.error("[Sprincul] Error while tearing down a model:", e);
+		} finally {
+			deleteCore(model);
+			Sprincul.#processedElements.delete(model.$el);
+			Sprincul.#untrackModelInstance(model);
 		}
-		Sprincul.#processedElements.delete(model.$el);
-		Sprincul.#untrackModelInstance(model);
 	}
 
 	static #restoreModelName(element: HTMLElement, previousModelName: string | undefined): void {

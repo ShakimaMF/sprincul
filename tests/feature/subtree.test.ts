@@ -148,6 +148,69 @@ describe("Sprincul - Subtree mounting", () => {
 		warnSpy.mockRestore();
 	});
 
+	describe("a model whose teardown throws", () => {
+		function mountWithBrokenTeardown(asyncParent: boolean) {
+			const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+			const log: string[] = [];
+			let mounts = 0;
+
+			class Broken extends SprinculModel {
+				afterInit() {
+					mounts++;
+				}
+
+				noop() {}
+
+				beforeDestroy() {
+					return asyncParent ? Promise.resolve() : undefined;
+				}
+			}
+			class Logged extends SprinculModel {
+				beforeDestroy() {
+					log.push(`destroy:${this.$el.dataset.label}`);
+				}
+			}
+			Sprincul.registerAll({ Broken, Logged });
+			container.innerHTML = html`<div data-model="Broken">
+					<button onclick="noop"></button>
+					<div data-model="Logged" data-label="child"></div>
+				</div>
+				<div data-model="Logged" data-label="sibling"></div>`;
+			Sprincul.init({ root: container });
+
+			// Make the core's own cleanup throw when it releases this listener
+			container.querySelector("button")!.removeEventListener = () => {
+				throw new Error("boom");
+			};
+
+			return { errorSpy, log, mounts: () => mounts };
+		}
+
+		test("sync: the rest of the subtree is still torn down and the element can be mounted again", async () => {
+			const { errorSpy, log, mounts } = mountWithBrokenTeardown(false);
+
+			await Sprincul.unmountAll(container);
+
+			expect(log).toEqual(["destroy:child", "destroy:sibling"]);
+			expect(errorSpy).toHaveBeenCalled();
+			Sprincul.init({ root: container });
+			expect(mounts()).toBe(2);
+			errorSpy.mockRestore();
+		});
+
+		test("async: its children are still torn down and the returned promise resolves", async () => {
+			const { errorSpy, log, mounts } = mountWithBrokenTeardown(true);
+
+			await Sprincul.unmountAll(container);
+
+			expect(log).toEqual(["destroy:sibling", "destroy:child"]);
+			expect(errorSpy).toHaveBeenCalled();
+			Sprincul.init({ root: container });
+			expect(mounts()).toBe(2);
+			errorSpy.mockRestore();
+		});
+	});
+
 	test("destroyAll() tears down parents before children", () => {
 		const log: string[] = [];
 		registerLogging(log);
