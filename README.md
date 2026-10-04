@@ -90,7 +90,7 @@ The full reference lives in the [wiki](https://github.com/ShakimaMF/sprincul/wik
 
 ## Examples
 
-For more usage patterns, see the tests under `tests`.
+Try the [live demo](https://shakimamf.github.io/sprincul/), a product listing with a side cart. Its source is in [`examples/`](examples); run it locally with `bun run example`. For more usage patterns, see the tests under `tests`.
 
 ## Tips for success
 

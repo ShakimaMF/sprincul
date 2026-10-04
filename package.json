@@ -29,6 +29,8 @@
 		"build:types": "tsc -p tsconfig.build.json",
 		"typecheck": "tsc -p .",
 		"bench": "bun bench/run.ts",
+		"example": "bun examples/serve.ts",
+		"build:demo": "rm -rf _site && mkdir _site && cp -R examples/shop/. _site/ && bun build src/index.ts --target=browser --format=esm --minify --outfile=_site/sprincul.js",
 		"format": "bunx prettier . --write",
 		"format:check": "bunx prettier . --check"
 	},
