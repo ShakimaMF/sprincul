@@ -46,7 +46,7 @@ Sprincul is distributed from GitHub, pinned to a release tag. No npm package.
 
 ```js
 // main.js
-import { Sprincul } from "https://esm.sh/gh/ShakimaMF/sprincul@v0.3.0";
+import { Sprincul } from "https://esm.sh/gh/ShakimaMF/sprincul@v0.4.0";
 import Counter from "./Counter.js";
 
 Sprincul.register("Counter", Counter);
@@ -56,18 +56,18 @@ Sprincul.init();
 ### Using a package manager
 
 ```bash
-npm install github:ShakimaMF/sprincul#v0.3.0
+npm install github:ShakimaMF/sprincul#v0.4.0
 # or
-pnpm add github:ShakimaMF/sprincul#v0.3.0
+pnpm add github:ShakimaMF/sprincul#v0.4.0
 # or
-bun add github:ShakimaMF/sprincul#v0.3.0
+bun add github:ShakimaMF/sprincul#v0.4.0
 ```
 
 ```js
 import { Sprincul } from "sprincul";
 ```
 
-Swap `v0.3.0` for whichever [release tag](https://github.com/ShakimaMF/sprincul/tags) you want.
+Swap `v0.4.0` for whichever [release tag](https://github.com/ShakimaMF/sprincul/tags) you want.
 
 ## Learn more
 
