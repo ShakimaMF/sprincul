@@ -45,11 +45,16 @@ describe("Sprincul - Memory", () => {
 
 		const el = document.createElement("div");
 		el.setAttribute("data-model", "Busy");
-		el.innerHTML = html`<button onclick="show"></button><div data-model="Child" data-ref="child"></div>`;
+		el.innerHTML = html`<button onclick="show"></button>
+			<div data-model="Child" data-ref="child"></div>`;
 		container.appendChild(el);
 
 		let models: any[] = [];
-		Sprincul.init({ root: el, devMode: true, onReady: (infos: any[]) => (models = infos.map((info) => info.instance)) });
+		Sprincul.init({
+			root: el,
+			devMode: true,
+			onReady: (infos: any[]) => (models = infos.map((info) => info.instance)),
+		});
 		const refs = models.map((model) => new WeakRef(model));
 		models = [];
 

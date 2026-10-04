@@ -30,11 +30,7 @@ export type BoundElementInput = {
 	selectedValues: string[] | undefined;
 };
 
-export type BoundElementDefault = {
-	input: BoundElementInput;
-	text: string;
-	html: string;
-};
+export type BoundElementDefault = { input: BoundElementInput; text: string; html: string };
 
 /**
  * Server-rendered input/text/html per bound state property (data-bind-<prop>).

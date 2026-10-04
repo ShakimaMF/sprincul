@@ -136,7 +136,7 @@ describe("Sprincul - Data Bindings", () => {
 
 		// Note: keyboard/input synthetic events in happy-dom are unreliable; click is covered above.
 
-		test("leaves non-event attributes that start with \"on\" alone", async () => {
+		test('leaves non-event attributes that start with "on" alone', async () => {
 			container.innerHTML = html`
 				<div data-model="FlagModel">
 					<button onclick="handleClick" once one only online data-keep="yes">Click Me</button>

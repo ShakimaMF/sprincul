@@ -172,9 +172,7 @@ export class SprinculCore {
 			this.#domListeners.delete(record);
 		});
 
-		this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter(
-			(binding) => !isInScope(binding.element),
-		);
+		this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter((binding) => !isInScope(binding.element));
 		this.#pendingListeners = this.#pendingListeners.filter((listener) => !isInScope(listener.element));
 		this.#frameCallbacks = this.#frameCallbacks.filter((binding) => !isInScope(binding.element));
 	}
@@ -339,7 +337,8 @@ export class SprinculCore {
 				// Capture server-rendered content before any callback touches it (first element wins)
 				if (options.defaults && !Object.prototype.hasOwnProperty.call(options.defaults, propertyName)) {
 					const isCheckable =
-						element instanceof HTMLInputElement && (element.type === "checkbox" || element.type === "radio");
+						element instanceof HTMLInputElement &&
+						(element.type === "checkbox" || element.type === "radio");
 					const isMultiSelect = element instanceof HTMLSelectElement && element.multiple;
 
 					options.defaults[propertyName] = {
@@ -361,7 +360,12 @@ export class SprinculCore {
 					return;
 				}
 
-				const record = { prop: propertyName, element, callback: callbackName, viaWire: options.viaWire === true };
+				const record = {
+					prop: propertyName,
+					element,
+					callback: callbackName,
+					viaWire: options.viaWire === true,
+				};
 				if (options.deferCallbacks) {
 					this.#pendingInitialCallbacks.push(record);
 					return;
