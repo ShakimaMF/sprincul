@@ -90,11 +90,16 @@ export default class Sprincul {
 	}
 
 	/**
-	 * Register multiple model classes at once
+	 * Register multiple model classes at once, each under its key. Takes an object literal or a module namespace
+	 * (`import * as models`) whose exports are all models; any value that isn't one is skipped with a warning.
 	 */
-	static registerAll(models: Record<string, SprinculModelConstructor>) {
-		for (const [name, cls] of Object.entries(models)) {
-			Sprincul.#registry.set(name, cls);
+	static registerAll<T extends { [K in keyof T]: SprinculModelConstructor }>(models: T) {
+		for (const [name, cls] of Object.entries(models) as [string, unknown][]) {
+			if (typeof cls !== "function" || !(cls.prototype instanceof SprinculModel)) {
+				console.warn(`[Sprincul] registerAll() skipped "${name}": it isn't a SprinculModel class.`);
+				continue;
+			}
+			Sprincul.#registry.set(name, cls as SprinculModelConstructor);
 		}
 	}
 
