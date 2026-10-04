@@ -49,12 +49,12 @@ export type DataValue<T> = T extends number ? number : T extends boolean ? boole
  * Options accepted by `init()`.
  *
  * - `devMode`: Include the model instance in `onReady` payloads and log dev-only warnings. Default `false`.
- * - `root`: Element to scope this scan to, instead of the whole page. Default `document.body`.
+ * - `root`: Element (or `DocumentFragment`) to scope this scan to, instead of the whole page. Default `document.body`.
  * - `onReady`: Called once every model scanned is wired up, and init callbacks (`beforeInit`/`afterInit`) are called.
  */
 export type SprinculInitOptions = {
 	devMode?: boolean;
-	root?: HTMLElement;
+	root?: HTMLElement | DocumentFragment;
 	onReady?: (models: SprinculModelInfo[]) => void;
 };
 

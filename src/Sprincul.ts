@@ -117,7 +117,7 @@ export default class Sprincul {
 		const root = options?.root ?? document.body;
 
 		const modelElements = Array.from(root.querySelectorAll<HTMLElement>("[data-model]"));
-		if (root.hasAttribute("data-model")) modelElements.unshift(root);
+		if (root instanceof HTMLElement && root.hasAttribute("data-model")) modelElements.unshift(root);
 
 		// Children before parents; siblings keep document order
 		modelElements.sort((a, b) => {

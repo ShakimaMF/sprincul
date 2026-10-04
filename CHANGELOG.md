@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `$data(name, fallback)` for reading typed config from a model root's data attributes. See [Model Data](https://github.com/ShakimaMF/sprincul/wiki/Model-Data).
 - Add `$child()` / `$children()` and `$parent()` for reaching nested and parent models. See [Refs](https://github.com/ShakimaMF/sprincul/wiki/Refs#reaching-nested-and-parent-models).
 - Add `$emit()`, `$listen()`, and `$signal` for events between models and cleanup on destroy, and a `signal` option on `Sprincul.store.subscribe()`. See [Model Events](https://github.com/ShakimaMF/sprincul/wiki/Model-Events).
+- `wire()` and `init({ root })` take a `DocumentFragment` or detached element, so content can be bound before it's appended. See [Wiring Dynamic Content](https://github.com/ShakimaMF/sprincul/wiki/Wiring-Dynamic-Content#wiring-before-appending).
 
 ### Changed
 

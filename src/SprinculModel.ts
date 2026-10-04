@@ -59,13 +59,16 @@ export default class SprinculModel {
 	beforeDestroy?(): void | Promise<void>;
 
 	/**
-	 * Bind new data attributes and event listeners to newly added content added within an active model's subtree.
+	 * Bind the data-bind-* attributes and on* handlers in content added to this model.
 	 *
-	 * @param {HTMLElement} element - The HTML element to be processed by the core system.
+	 * Content not appended yet (a `DocumentFragment` or detached element) can be wired first and appended after:
+	 * its listeners attach now and its binding callbacks run in the next frame, once it's usually on the page.
+	 *
+	 * @param {HTMLElement | DocumentFragment} element - The content to bind, and its descendants.
 	 * @return {void} Does not return a value.
 	 * @throws {Error} If the method is called before the core is available.
 	 */
-	wire(element: HTMLElement): void {
+	wire(element: HTMLElement | DocumentFragment): void {
 		const core = this.#core || getCore(this);
 		if (!core) {
 			throw new Error(
