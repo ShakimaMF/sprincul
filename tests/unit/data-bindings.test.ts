@@ -325,7 +325,7 @@ describe("Sprincul - Data Bindings", () => {
 				}
 
 				renderList(el: HTMLElement) {
-					el.innerHTML = this.state.items.map((item) => `<li>${item.name}</li>`).join("");
+					el.innerHTML = this.state.items.map((item: { name: string }) => `<li>${item.name}</li>`).join("");
 				}
 			}
 
@@ -357,7 +357,7 @@ describe("Sprincul - Data Bindings", () => {
 				}
 
 				renderList(el: HTMLElement) {
-					el.innerHTML = this.state.items.map((item) => `<li>${item.name}</li>`).join("");
+					el.innerHTML = this.state.items.map((item: { name: string }) => `<li>${item.name}</li>`).join("");
 				}
 			}
 

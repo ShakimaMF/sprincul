@@ -26,7 +26,8 @@
 		"watch": "bun build src/index.ts --target=browser --format=esm --outdir=dist --sourcemap=external --watch",
 		"build": "bun run build:js && bun run build:types",
 		"build:js": "bun build src/index.ts --target=browser --format=esm --outdir=dist --sourcemap=external && bun build src/index.ts --target=browser --format=esm --outdir=dist --minify --sourcemap=external --entry-naming [dir]/[name].min.[ext]",
-		"build:types": "tsc",
+		"build:types": "tsc -p tsconfig.build.json",
+		"typecheck": "tsc -p .",
 		"bench": "bun bench/run.ts",
 		"format": "bunx prettier . --write",
 		"format:check": "bunx prettier . --check"

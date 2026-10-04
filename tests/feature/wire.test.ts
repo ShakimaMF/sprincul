@@ -430,7 +430,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 					return result;
 				},
 			} as IterableIterator<T>;
-		};
+		} as typeof originalIterator;
 
 		const wireRows = (rows: number) => {
 			const el = document.createElement("div");

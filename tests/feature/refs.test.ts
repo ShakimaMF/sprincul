@@ -99,7 +99,7 @@ describe("Sprincul - Refs", () => {
 		</div>`;
 
 		const models: any[] = [];
-		Sprincul.init({ root: container, devMode: true, onReady: (infos) => models.push(...infos) });
+		Sprincul.init({ root: container, devMode: true, onReady: (infos: unknown[]) => models.push(...infos) });
 
 		const parent = models.find((m) => m.name === "Parent").instance;
 		const child = models.find((m) => m.name === "Child").instance;
@@ -203,7 +203,7 @@ describe("Sprincul - Refs", () => {
 	});
 
 	test("refs can be read from the constructor, before the model is mounted", () => {
-		let fromConstructor: HTMLElement | null = null;
+		let fromConstructor = null as HTMLElement | null;
 
 		class Early extends SprinculModel {
 			constructor(element: HTMLElement) {

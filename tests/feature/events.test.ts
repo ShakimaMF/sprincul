@@ -80,7 +80,7 @@ describe("Sprincul - Model events", () => {
 
 		class Watcher extends SprinculModel {
 			afterInit() {
-				Sprincul.store.subscribe("theme", (value) => values.push(value), { signal: this.$signal });
+				Sprincul.store.subscribe("theme", (value: unknown) => values.push(value), { signal: this.$signal });
 			}
 
 			beforeDestroy() {

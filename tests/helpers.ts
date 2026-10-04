@@ -3,11 +3,13 @@
 import { rmSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-type IsolatedApi = { Sprincul: any; SprinculModel: any; cleanup: () => void };
+import type * as Api from "../src/index.ts";
+
+type IsolatedApi = { Sprincul: any; SprinculModel: typeof Api.SprinculModel; cleanup: () => void };
 
 declare global {
 	var Sprincul: any;
-	var SprinculModel: any;
+	var SprinculModel: typeof Api.SprinculModel;
 	var container: HTMLElement;
 }
 

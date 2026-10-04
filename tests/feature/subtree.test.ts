@@ -64,7 +64,7 @@ describe("Sprincul - Subtree mounting", () => {
 		let reported: string[] = [];
 		Sprincul.init({
 			root: container,
-			onReady: (models) => (reported = models.map((m) => m.element.dataset.label!)),
+			onReady: (models: { element: HTMLElement }[]) => (reported = models.map((m) => m.element.dataset.label!)),
 		});
 
 		expect(log).toEqual(["init:existing", "init:added"]);

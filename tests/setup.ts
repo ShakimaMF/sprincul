@@ -23,6 +23,7 @@ afterEach(async () => {
 	// @ts-ignore - explicit cleanup for test globals
 	globalThis.container = undefined;
 	globalThis.Sprincul = undefined;
+	// @ts-ignore - explicit cleanup for test globals
 	globalThis.SprinculModel = undefined;
 
 	await registerDom.unregister();
