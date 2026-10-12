@@ -4,7 +4,7 @@ Run one with `bun run example [name]` from the package root, then open http://lo
 
 ## shop
 
-[Live demo](https://shakimamf.github.io/sprincul/). A product listing with search, category filters, and a slide-out cart that persists to `localStorage`. Enter a code like `25OFF` (any number from 1 to 100) in the cart to apply a discount.
+[Live demo](https://shakimamf.github.io/sprincul/). A product listing with search, category filters, and a slide-out cart that persists to `sessionStorage`. Enter a code like `25OFF` (any number from 1 to 100) in the cart to apply a discount.
 
 ```
 shop/

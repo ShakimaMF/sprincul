@@ -19,7 +19,7 @@ export const Cart = {
 	setLines(lines) {
 		Sprincul.store.set("cart", lines);
 		try {
-			localStorage.setItem(STORAGE_KEY, JSON.stringify(lines));
+			sessionStorage.setItem(STORAGE_KEY, JSON.stringify(lines));
 		} catch {
 			// Storage full or blocked: the cart keeps working for this page view
 		}
@@ -111,11 +111,18 @@ function isLine(line) {
 /** @returns {CartLine[]} */
 function loadLines() {
 	try {
-		const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
+		const saved = JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "[]");
 		return Array.isArray(saved) && saved.every(isLine) ? saved : [];
 	} catch {
 		return [];
 	}
+}
+
+// Earlier versions of the demo saved the cart to localStorage
+try {
+	localStorage.removeItem(STORAGE_KEY);
+} catch {
+	// Storage blocked: nothing to clean up
 }
 
 // Seeded on import, before any model mounts, so every model starts from the saved cart
