@@ -1,7 +1,21 @@
 import SprinculModel from "./SprinculModel";
 
 export type { SprinculModel };
-export type SprinculModelConstructor = new (element: HTMLElement) => SprinculModel;
+
+/**
+ * Shared Sprincul options
+ *
+ * @var {boolean} devMode - Debug logging and model instance access. Default `false`.
+ * @var {boolean} processNativeEvents - Transitional setting that binds native on* attribute events
+ */
+export type SprinculOptions = { devMode: boolean; processNativeEvents: boolean };
+
+/** Options a model sets on itself with `static options`: the shared {@link SprinculOptions} */
+export type SprinculModelOptions = Partial<SprinculOptions>;
+
+export type SprinculModelConstructor = (new (element: HTMLElement) => SprinculModel) & {
+	options?: SprinculModelOptions;
+};
 export type SprinculModelRegistry = Map<string, SprinculModelConstructor>;
 
 export type DomListenerRecord = {
@@ -42,22 +56,19 @@ export type BoundDefaults = Record<string, BoundElementDefault>;
 export type DataValue<T> = T extends number ? number : T extends boolean ? boolean : T extends string ? string : T;
 
 /**
- * Options accepted by `init()`.
+ * Options accepted by `init()`, plus the shared {@link SprinculOptions}
  *
- * - `devMode`: Include the model instance in `onReady` payloads and log dev-only warnings. Default `false`.
- * - `root`: Element (or `DocumentFragment`) to scope this scan to, instead of the whole page. Default `document.body`.
- * - `onReady`: Called once every model scanned is wired up, and init callbacks (`beforeInit`/`afterInit`) are called.
+ * @var {HTMLElement | DocumentFragment} root - Scopes the scan to this element or fragment instead of the whole page. Default `document.body`.
+ * @var {Function} onReady - Called once every model scanned is wired up and its init hooks are called
  */
-export type SprinculInitOptions = {
-	devMode?: boolean;
+export type SprinculInitOptions = Partial<SprinculOptions> & {
 	root?: HTMLElement | DocumentFragment;
 	onReady?: (models: SprinculModelInfo[]) => void;
 };
 
 /**
- * Options accepted by `mount()`.
+ * Options accepted by `mount()`, plus the shared {@link SprinculOptions}
  *
- * - `devMode`: Include the model instance in the `onReady` payload and log dev-only warnings. Default `false`.
- * - `onReady`: Called once this instance is wired up, and init callbacks (`beforeInit`/`afterInit`) are called.
+ * @var {Function} onReady - Called once this instance is wired up and its init hooks are called
  */
-export type SprinculMountOptions = { devMode?: boolean; onReady?: (model: SprinculModelInfo) => void };
+export type SprinculMountOptions = Partial<SprinculOptions> & { onReady?: (model: SprinculModelInfo) => void };

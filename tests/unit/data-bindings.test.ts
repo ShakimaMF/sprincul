@@ -322,6 +322,93 @@ describe("Sprincul - Data Bindings", () => {
 			expect(clicks).toBe(1);
 		});
 
+		describe("processNativeEvents", () => {
+			function captureWarnings(run: () => void): string[] {
+				const warnings: string[] = [];
+				const warn = spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
+					warnings.push(args.join(" "));
+				});
+				try {
+					run();
+				} finally {
+					warn.mockRestore();
+				}
+				return warnings;
+			}
+
+			test("binding native on* to model methods warns once per page that it's deprecated", () => {
+				container.innerHTML = html`
+					<div data-model="NativeModel">
+						<button onclick="save">Save</button>
+						<input oninput="update" />
+					</div>
+				`;
+
+				class NativeModel extends SprinculModel {
+					save() {}
+					update() {}
+				}
+				Sprincul.register("NativeModel", NativeModel);
+
+				const warnings = captureWarnings(() => Sprincul.init());
+
+				expect(warnings).toHaveLength(1);
+				expect(warnings[0]).toContain('use data-on-click="save" instead');
+				expect(warnings[0]).toContain('Sprincul.setOption("processNativeEvents", false)');
+			});
+
+			test("does not warn when no native on* names a model method", () => {
+				container.innerHTML = html`
+					<div data-model="InlineModel">
+						<button data-on-click="save" onmouseover="this.dataset.hover = 'yes'">Save</button>
+					</div>
+				`;
+
+				class InlineModel extends SprinculModel {
+					save() {}
+				}
+				Sprincul.register("InlineModel", InlineModel);
+
+				expect(captureWarnings(() => Sprincul.init())).toEqual([]);
+			});
+
+			test("false leaves native on* to the browser while data-on-* still binds", async () => {
+				container.innerHTML = html`
+					<div data-model="OptedInModel">
+						<button onclick="save" data-on-click="save">Save</button>
+						<input oninput="update" />
+					</div>
+				`;
+
+				let saves = 0;
+				let updates = 0;
+
+				class OptedInModel extends SprinculModel {
+					save() {
+						saves++;
+					}
+					update() {
+						updates++;
+					}
+				}
+				Sprincul.register("OptedInModel", OptedInModel);
+
+				const warnings = captureWarnings(() => Sprincul.init({ devMode: true, processNativeEvents: false }));
+
+				const button = container.querySelector("button") as HTMLButtonElement;
+				const input = container.querySelector("input") as HTMLInputElement;
+				expect(button.getAttribute("onclick")).toBe("save");
+				expect(input.getAttribute("oninput")).toBe("update");
+				expect(warnings).toEqual([]);
+
+				button.click();
+				input.dispatchEvent(new input.ownerDocument.defaultView!.Event("input"));
+				await waitForDomUpdate();
+				expect(saves).toBe(1);
+				expect(updates).toBe(0);
+			});
+		});
+
 		test("comprehensive integration: event changes state, multiple elements react", async () => {
 			container.innerHTML = html`
 				<div data-model="CounterModel">

@@ -8,6 +8,7 @@ import type {
 	SprinculModelInfo,
 	SprinculModelRegistry,
 	SprinculMountOptions,
+	SprinculOptions,
 } from "./types";
 import { abortSignal, deleteCore, deleteInstance, getCore, getInstance, setCore, setInstance } from "./registry";
 
@@ -30,6 +31,8 @@ export default class Sprincul {
 	static #deprecationsWarned = new Set<string>();
 	/** Instances with a still-pending async beforeInit. */
 	static #pendingBeforeInit = new WeakSet<SprinculModel>();
+	/** Page-wide defaults from setOption(), below a call's options and a model's `static options`. */
+	static #options: SprinculOptions = { devMode: false, processNativeEvents: true };
 
 	static store = {
 		get<T = any>(key: string): T | undefined {
@@ -83,6 +86,27 @@ export default class Sprincul {
 	};
 
 	/**
+	 * Set a page-wide default for an option. A model's `static options` and the options passed to
+	 * `init()`/`mount()` still override it. Call it before registering or mounting models.
+	 */
+	static setOption<K extends keyof SprinculOptions>(name: K, value: SprinculOptions[K]): void {
+		if (!Object.prototype.hasOwnProperty.call(Sprincul.#options, name)) {
+			console.warn(`[Sprincul] setOption() was given an unknown option "${String(name)}".`);
+			return;
+		}
+		Sprincul.#options[name] = value;
+	}
+
+	/** Resolves an option: the call's value, then the model's `static options`, then setOption()'s default. */
+	static #option<K extends keyof SprinculOptions>(
+		name: K,
+		modelClass: SprinculModelConstructor | undefined,
+		callValue?: SprinculOptions[K],
+	): SprinculOptions[K] {
+		return callValue ?? modelClass?.options?.[name] ?? Sprincul.#options[name];
+	}
+
+	/**
 	 * Register a single model class
 	 */
 	static register(name: string, modelClass: SprinculModelConstructor) {
@@ -118,7 +142,6 @@ export default class Sprincul {
 			return;
 		}
 
-		const devMode = options?.devMode ?? false;
 		const root = options?.root ?? document.body;
 
 		const modelElements = Array.from(root.querySelectorAll<HTMLElement>("[data-model]"));
@@ -135,7 +158,11 @@ export default class Sprincul {
 
 		modelElements.forEach((element) => {
 			try {
-				const info = Sprincul.processModelElement(element as HTMLElement, devMode);
+				const info = Sprincul.processModelElement(
+					element as HTMLElement,
+					options?.devMode,
+					options?.processNativeEvents,
+				);
 				if (info) modelInfos.push(info);
 			} catch (e) {
 				console.error(`[Sprincul] Failed to process model element:`, e);
@@ -148,7 +175,11 @@ export default class Sprincul {
 		});
 
 		if (options?.onReady) {
-			const publicModels = devMode ? modelInfos : modelInfos.map(({ name, element }) => ({ name, element }));
+			const publicModels = modelInfos.map((info) =>
+				Sprincul.#option("devMode", Sprincul.#registry.get(info.name), options.devMode)
+					? info
+					: { name: info.name, element: info.element },
+			);
 
 			try {
 				options.onReady(publicModels);
@@ -163,11 +194,16 @@ export default class Sprincul {
 	 * Creates both the user model instance and internal core instance
 	 *
 	 * @param {HTMLElement} element
-	 * @param {Boolean} devMode
+	 * @param devModeOption - See `SprinculOptions`; omitted, it falls back like any other option
+	 * @param processNativeEventsOption - See `SprinculOptions`; omitted, it falls back like any other option
 	 *
 	 * @returns The model info, or `null` if the element couldn't be processed
 	 */
-	static processModelElement(element: HTMLElement, devMode: boolean = false): SprinculModelInfo | null {
+	static processModelElement(
+		element: HTMLElement,
+		devModeOption?: boolean,
+		processNativeEventsOption?: boolean,
+	): SprinculModelInfo | null {
 		const modelName = element.dataset.model;
 		if (!modelName) {
 			console.warn('[Sprincul] Element is missing a "data-model" attribute. Skipping.');
@@ -179,6 +215,9 @@ export default class Sprincul {
 			console.warn(`[Sprincul] The model "${modelName}" is not registered. Skipping.`);
 			return null;
 		}
+
+		const devMode = Sprincul.#option("devMode", ModelClass, devModeOption);
+		const processNativeEvents = Sprincul.#option("processNativeEvents", ModelClass, processNativeEventsOption);
 
 		if (Sprincul.#processedElements.has(element)) {
 			if (devMode && Sprincul.#tearingDown(element)) {
@@ -196,7 +235,7 @@ export default class Sprincul {
 		let defaults: BoundDefaults;
 		try {
 			model = new ModelClass(element);
-			core = new SprinculCore(model, devMode);
+			core = new SprinculCore(model, devMode, processNativeEvents);
 			setCore(model, core);
 			Sprincul.#trackModelInstance(modelName, model);
 
@@ -303,11 +342,9 @@ export default class Sprincul {
 		const previousModelName = element.dataset.model;
 		element.dataset.model = modelName;
 
-		const devMode = options?.devMode ?? false;
-
 		let info: SprinculModelInfo | null;
 		try {
-			info = Sprincul.processModelElement(element, devMode);
+			info = Sprincul.processModelElement(element, options?.devMode, options?.processNativeEvents);
 		} catch (e) {
 			Sprincul.#restoreModelName(element, previousModelName);
 			throw e;
@@ -319,7 +356,9 @@ export default class Sprincul {
 		}
 
 		if (options?.onReady) {
-			const publicInfo = devMode ? info : { name: info.name, element: info.element };
+			const publicInfo = Sprincul.#option("devMode", Sprincul.#registry.get(modelName), options.devMode)
+				? info
+				: { name: info.name, element: info.element };
 
 			try {
 				options.onReady(publicInfo);

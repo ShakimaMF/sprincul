@@ -32,10 +32,13 @@ export class SprinculCore {
 	#frameCallbacks: Array<BindingRecord> = [];
 	#pendingListeners: Array<PendingListener> = [];
 	readonly #isBrowser: boolean;
+	/** The native on* deprecation warns once per page, not once per attribute. */
+	static #nativeEventsWarned = false;
 
 	constructor(
 		public instance: SprinculModel,
 		private devMode: boolean = false,
+		private processNativeEvents: boolean = true,
 	) {
 		this.#isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
 	}
@@ -397,8 +400,8 @@ export class SprinculCore {
 				return;
 			}
 
-			// Handle on* event attributes (onclick, onkeydown, etc.)
-			if (this.#isEventAttribute(element, attr.name)) {
+			// Handle on* event attributes (onclick, onkeydown, etc.). With processNativeEvents off they're plain DOM.
+			if (this.processNativeEvents && this.#isEventAttribute(element, attr.name)) {
 				const eventName = attr.name.substring(2); // Remove 'on' prefix
 				element.removeAttribute(attr.name);
 
@@ -408,9 +411,20 @@ export class SprinculCore {
 					return;
 				}
 
+				if (typeof Reflect.get(this.instance, attr.value) === "function") {
+					this.#warnNativeEvent(attr.name, eventName, attr.value);
+				}
 				this.#queueListener(element, attr.name, eventName, attr.value, options);
 			}
 		});
+	}
+
+	#warnNativeEvent(attributeName: string, eventName: string, methodName: string) {
+		if (SprinculCore.#nativeEventsWarned) return;
+		SprinculCore.#nativeEventsWarned = true;
+		console.warn(
+			`[Sprincul] Binding native event attributes such as ${attributeName}="${methodName}" is deprecated and will stop in a future release; use data-on-${eventName}="${methodName}" instead. To opt in early, call Sprincul.setOption("processNativeEvents", false).`,
+		);
 	}
 
 	#queueListener(

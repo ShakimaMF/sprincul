@@ -7,7 +7,9 @@ export type {
 	BoundElementDefault,
 	BoundElementInput,
 	SprinculInitOptions,
+	SprinculModelOptions,
 	SprinculModelConstructor,
 	SprinculModelInfo,
 	SprinculMountOptions,
+	SprinculOptions,
 } from "./types";
