@@ -6,11 +6,11 @@ describe("Sprincul - Teardown", () => {
 	test("destroy(modelName) tears down all instances for that model", async () => {
 		container.innerHTML = html`
 			<div data-model="DestroyByNameModel" id="one">
-				<button onclick="increment">+</button>
+				<button data-on-click="increment">+</button>
 				<span data-bind-count="showCount"></span>
 			</div>
 			<div data-model="DestroyByNameModel" id="two">
-				<button onclick="increment">+</button>
+				<button data-on-click="increment">+</button>
 				<span data-bind-count="showCount"></span>
 			</div>
 		`;
@@ -59,11 +59,11 @@ describe("Sprincul - Teardown", () => {
 	test("destroy(modelName, element) tears down only the matching instance", async () => {
 		container.innerHTML = html`
 			<div data-model="ScopedDestroyModel" id="first">
-				<button onclick="increment">+</button>
+				<button data-on-click="increment">+</button>
 				<span data-bind-count="showCount"></span>
 			</div>
 			<div data-model="ScopedDestroyModel" id="second">
-				<button onclick="increment">+</button>
+				<button data-on-click="increment">+</button>
 				<span data-bind-count="showCount"></span>
 			</div>
 		`;
@@ -112,7 +112,7 @@ describe("Sprincul - Teardown", () => {
 	test("unmount() tears down a detached element; re-mounting fresh markup starts a new instance", async () => {
 		container.innerHTML = html`
 			<div data-model="RemovedParentModel" id="parent-root">
-				<button onclick="increment">+</button>
+				<button data-on-click="increment">+</button>
 				<span data-bind-count="showCount"></span>
 			</div>
 		`;
@@ -152,7 +152,7 @@ describe("Sprincul - Teardown", () => {
 		// Fresh markup with the same data-model is a brand new instance once init() runs again.
 		container.innerHTML = html`
 			<div data-model="RemovedParentModel" id="parent-root">
-				<button onclick="increment">+</button>
+				<button data-on-click="increment">+</button>
 				<span data-bind-count="showCount"></span>
 			</div>
 		`;
@@ -170,11 +170,11 @@ describe("Sprincul - Teardown", () => {
 	test("destroyAll() tears down every live instance regardless of model name", async () => {
 		container.innerHTML = html`
 			<div data-model="Alpha" id="alpha">
-				<button onclick="increment">+</button>
+				<button data-on-click="increment">+</button>
 				<span data-bind-count="showCount"></span>
 			</div>
 			<div data-model="Beta" id="beta">
-				<button onclick="increment">+</button>
+				<button data-on-click="increment">+</button>
 				<span data-bind-count="showCount"></span>
 			</div>
 		`;
@@ -412,8 +412,7 @@ describe("Sprincul - Teardown", () => {
 
 		const first = Sprincul.mount(el, ReusableModel);
 
-		// Same tick: tear down and remount on the same element. Only data-bind-* is asserted here;
-		// on* handlers are consumed on first bind, so a remount needs fresh markup for those.
+		// Same tick: tear down and remount on the same element. Only data-bind-* is asserted here.
 		Sprincul.unmount(el);
 		const second = Sprincul.mount(el, ReusableModel);
 
@@ -469,7 +468,41 @@ describe("Sprincul - Teardown", () => {
 		expect(span.textContent).toBe("0");
 	});
 
-	test("remounting reuses data-bind-* but not on* handlers, which are consumed on first bind", async () => {
+	test("remounting the same markup restores its data-bind-* and data-on-* handlers", async () => {
+		let clicks = 0;
+
+		class ReboundMarkupModel extends SprinculModel {
+			beforeInit() {
+				this.state.count = 0;
+			}
+			increment() {
+				clicks++;
+			}
+			showCount(el: HTMLElement) {
+				el.textContent = String(this.state.count);
+			}
+		}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<button data-on-click="increment"></button><span data-bind-count="showCount"></span>`;
+		container.appendChild(el);
+
+		Sprincul.mount(el, ReboundMarkupModel);
+		Sprincul.unmount(el);
+		const second = Sprincul.mount(el, ReboundMarkupModel) as InstanceType<typeof ReboundMarkupModel>;
+
+		// data-bind-* attributes survive, so the remounted instance still drives the DOM
+		second.state.count = 3;
+		await waitForDomUpdate();
+		expect(el.querySelector("span")!.textContent).toBe("3");
+
+		// data-on-* stays in the DOM, so the remounted instance binds it again
+		(el.querySelector("button") as HTMLButtonElement).click();
+		await waitForDomUpdate();
+		expect(clicks).toBe(1);
+	});
+
+	test("remounting does not restore native on* handlers, which are consumed on first bind", async () => {
 		let clicks = 0;
 
 		class StaleMarkupModel extends SprinculModel {
@@ -556,7 +589,7 @@ describe("Sprincul - Teardown", () => {
 		}
 
 		const el = document.createElement("div");
-		el.innerHTML = html`<span data-bind-count="bindCount"></span><button onclick="increment">+</button>`;
+		el.innerHTML = html`<span data-bind-count="bindCount"></span><button data-on-click="increment">+</button>`;
 		container.appendChild(el);
 
 		Sprincul.mount(el, SlowInitModel);

@@ -267,12 +267,12 @@ describe("Sprincul - Initialization", () => {
 		warnSpy.mockRestore();
 	});
 
-	test("warns in devMode when an on* event handler method is not found", async () => {
+	test("warns in devMode when a data-on-* event handler method is not found", async () => {
 		const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
 
 		container.innerHTML = html`
 			<div data-model="DevModeModel">
-				<button onclick="nonExistentHandler">Click</button>
+				<button data-on-click="nonExistentHandler">Click</button>
 			</div>
 		`;
 
@@ -283,7 +283,7 @@ describe("Sprincul - Initialization", () => {
 		Sprincul.init({ devMode: true });
 
 		expect(warnSpy).toHaveBeenCalledWith(
-			'[Sprincul] Event handler method "nonExistentHandler" not found for onclick.',
+			'[Sprincul] Event handler method "nonExistentHandler" not found for data-on-click.',
 		);
 		warnSpy.mockRestore();
 	});
@@ -452,10 +452,10 @@ describe("Sprincul - Initialization", () => {
 		expect(span?.textContent).toBe("Hello from async beforeInit!");
 	});
 
-	test("on* event listeners are not live until beforeInit has genuinely finished", () => {
+	test("data-on-* event listeners are not live until beforeInit has genuinely finished", () => {
 		container.innerHTML = html`
 			<div data-model="SlowInitModel">
-				<button onclick="increment">+</button>
+				<button data-on-click="increment">+</button>
 			</div>
 		`;
 

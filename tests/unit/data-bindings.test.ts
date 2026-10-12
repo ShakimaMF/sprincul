@@ -7,7 +7,7 @@ describe("Sprincul - Data Bindings", () => {
 		test("supports multiple different bindings on same element", async () => {
 			container.innerHTML = html`
 				<div data-model="TestModel">
-					<button onclick="update">Update</button>
+					<button data-on-click="update">Update</button>
 					<div data-bind-title="updateTitle" data-bind-content="updateContent"></div>
 				</div>
 			`;
@@ -51,7 +51,7 @@ describe("Sprincul - Data Bindings", () => {
 		test("converts dashed names to camelCase state keys like dataset", async () => {
 			container.innerHTML = html`
 				<div data-model="TestModel">
-					<button onclick="rename">Rename</button>
+					<button data-on-click="rename">Rename</button>
 					<span data-bind-button-text="showLabel"></span>
 					<span data-bind-buttontext="showLower"></span>
 					<span data-bind-item-2="showItem"></span>
@@ -205,12 +205,129 @@ describe("Sprincul - Data Bindings", () => {
 			expect(warnings).toHaveLength(0);
 		});
 
+		test("handles events via data-on-* attributes and keeps them in the DOM", async () => {
+			container.innerHTML = html`
+				<div data-model="DataOnModel">
+					<button data-on-click="handleClick">Click Me</button>
+				</div>
+			`;
+
+			let clicks = 0;
+
+			class DataOnModel extends SprinculModel {
+				handleClick() {
+					clicks++;
+				}
+			}
+
+			Sprincul.register("DataOnModel", DataOnModel);
+			Sprincul.init();
+
+			const button = container.querySelector("button") as HTMLButtonElement;
+			expect(button.getAttribute("data-on-click")).toBe("handleClick");
+
+			button.click();
+			await waitForDomUpdate();
+			expect(clicks).toBe(1);
+		});
+
+		test("takes the data-on-* event name from the attribute as written, so hyphenated custom events work", () => {
+			container.innerHTML = html`
+				<div data-model="CustomEventModel">
+					<ul data-on-item-added="handleAdded"></ul>
+				</div>
+			`;
+
+			let received = null as string | null;
+
+			class CustomEventModel extends SprinculModel {
+				handleAdded(e: Event) {
+					received = e.type;
+				}
+			}
+
+			Sprincul.register("CustomEventModel", CustomEventModel);
+			Sprincul.init();
+
+			const target = container.querySelector("ul") as HTMLElement;
+			const EventCtor = target.ownerDocument.defaultView!.Event;
+			target.dispatchEvent(new EventCtor("item-added"));
+			expect(received).toBe("item-added");
+		});
+
+		for (const markup of [
+			`<button onclick="nativeClick" data-on-click="dataClick">Click Me</button>`,
+			`<button data-on-click="dataClick" onclick="nativeClick">Click Me</button>`,
+		]) {
+			test(`favors data-on-* over its on* twin and warns, regardless of attribute order: ${markup}`, async () => {
+				container.innerHTML = html`<div data-model="BothModel">${markup}</div>`;
+
+				const calls: string[] = [];
+
+				class BothModel extends SprinculModel {
+					nativeClick() {
+						calls.push("native");
+					}
+
+					dataClick() {
+						calls.push("data");
+					}
+				}
+
+				Sprincul.register("BothModel", BothModel);
+
+				const warnings: string[] = [];
+				const originalWarn = console.warn;
+				console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+				try {
+					Sprincul.init({ devMode: true });
+				} finally {
+					console.warn = originalWarn;
+				}
+
+				const button = container.querySelector("button") as HTMLButtonElement;
+				expect(button.hasAttribute("onclick")).toBe(false);
+				expect(button.getAttribute("data-on-click")).toBe("dataClick");
+
+				button.click();
+				await waitForDomUpdate();
+
+				expect(calls).toEqual(["data"]);
+				expect(warnings).toHaveLength(1);
+				expect(warnings[0]).toContain("onclick");
+				expect(warnings[0]).toContain("data-on-click");
+			});
+		}
+
+		test("wire() on an already-bound element does not bind its data-on-* twice", async () => {
+			let clicks = 0;
+
+			class WireModel extends SprinculModel {
+				handleClick() {
+					clicks++;
+				}
+			}
+
+			const el = document.createElement("div");
+			el.innerHTML = html`<button data-on-click="handleClick">Click Me</button>`;
+			container.appendChild(el);
+
+			const instance = Sprincul.mount(el, WireModel);
+			const button = el.querySelector("button") as HTMLButtonElement;
+			instance.wire(button);
+			instance.wire(el);
+
+			button.click();
+			await waitForDomUpdate();
+			expect(clicks).toBe(1);
+		});
+
 		test("comprehensive integration: event changes state, multiple elements react", async () => {
 			container.innerHTML = html`
 				<div data-model="CounterModel">
-					<button onclick="increment">+</button>
-					<button onclick="decrement">-</button>
-					<button onclick="reset">Reset</button>
+					<button data-on-click="increment">+</button>
+					<button data-on-click="decrement">-</button>
+					<button data-on-click="reset">Reset</button>
 					<div data-bind-count="updateCount"></div>
 					<div data-bind-doubled="updateDoubled"></div>
 					<div data-bind-status="updateStatus"></div>
@@ -341,7 +458,7 @@ describe("Sprincul - Data Bindings", () => {
 		test("re-renders list when array changes", async () => {
 			container.innerHTML = html`
 				<div data-model="TestModel">
-					<button onclick="addItem">Add Item</button>
+					<button data-on-click="addItem">Add Item</button>
 					<ul data-bind-items="renderList"></ul>
 				</div>
 			`;
@@ -385,7 +502,7 @@ describe("Sprincul - Data Bindings", () => {
 		test("errors in one binding do not affect other bindings", async () => {
 			container.innerHTML = html`
 				<div data-model="TestModel">
-					<button onclick="trigger">Trigger</button>
+					<button data-on-click="trigger">Trigger</button>
 					<span data-bind-count="throwError"></span>
 					<div data-bind-count="safeUpdate"></div>
 				</div>

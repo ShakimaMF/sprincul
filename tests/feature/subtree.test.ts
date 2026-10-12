@@ -175,7 +175,7 @@ describe("Sprincul - Subtree mounting", () => {
 			}
 			Sprincul.registerAll({ Broken, Logged });
 			container.innerHTML = html`<div data-model="Broken">
-					<button onclick="noop"></button>
+					<button data-on-click="noop"></button>
 					<div data-model="Logged" data-label="child"></div>
 				</div>
 				<div data-model="Logged" data-label="sibling"></div>`;
@@ -332,7 +332,7 @@ describe("Sprincul - Subtree mounting", () => {
 			Sprincul.register("Plain", Plain);
 			container.innerHTML = tree
 				.replaceAll("Logged", "Plain")
-				.replaceAll("<div data-model", '<div onclick="count" data-model');
+				.replaceAll("<div data-model", '<div data-on-click="count" data-model');
 			const instances = [...initInstances(container).values()];
 			expect(instances).toHaveLength(4);
 			return instances;
