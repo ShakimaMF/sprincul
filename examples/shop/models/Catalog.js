@@ -4,6 +4,8 @@ import { SprinculModel } from "sprincul";
  * The product listing. It listens for ProductFilters' "filter" event and asks each ProductCard whether it matches.
  */
 export default class Catalog extends SprinculModel {
+	static options = { customElement: "product-catalog" };
+
 	beforeInit() {
 		this.state.shown = 0;
 		this.state.total = 0;

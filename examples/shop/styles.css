@@ -21,6 +21,15 @@ body {
 	display: none !important;
 }
 
+/* Each model's custom element wraps the markup it mounts on, so it adds no box of its own */
+cart-toggle,
+product-catalog,
+product-filters,
+product-card,
+side-cart {
+	display: contents;
+}
+
 button {
 	font: inherit;
 	cursor: pointer;

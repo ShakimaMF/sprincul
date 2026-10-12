@@ -8,12 +8,11 @@ Run one with `bun run example [name]` from the package root, then open http://lo
 
 ```
 shop/
-├── index.html         server-rendered markup: every data-model, binding, and event attribute
-├── register.js        loaded in <head>: registers every model
-├── main.js            loaded at the end of <body>: calls Sprincul.init()
+├── index.html         server-rendered markup: every model's custom element, binding, and event attribute
+├── register.js        registers every model, which defines their custom elements
 ├── images/          product photos and icon-spritesheet.svg, used with <use href>
 ├── models/
-│   ├── index.js       exports every model by its data-model name
+│   ├── index.js       exports every model
 │   ├── Catalog.js
 │   ├── CartToggle.js
 │   ├── ProductCard.js
@@ -24,9 +23,9 @@ shop/
     └── pricing.js     price formatting and XXOFF discount codes
 ```
 
-### Registering apart from mounting
+### Every model is a custom element
 
-`register.js` imports `models/index.js` as a namespace and passes it straight to `registerAll()`, since each export is named after its `data-model`. Registration needs no DOM, so it can run from `<head>` on every page, and `main.js` calls `init()` once the markup is there. Both files import `sprincul` through the same import map entry, so they share one registry.
+Each model sets `static options = { customElement: "..." }`, so `register.js` only has to pass `models/index.js` to `registerAll()`: that defines `<product-catalog>`, `<product-card>`, and the rest, and each element mounts its own model. There's no `init()` call, and removing an element cleans up its model. A custom element can't stand in for `<main>`, `<form>`, `<article>`, or `<aside>`, so each one wraps that element, with `display: contents` so it adds no box of its own. See [Custom Elements](https://github.com/ShakimaMF/sprincul/wiki/Custom-Elements).
 
 ### What each model shows
 
