@@ -3,6 +3,9 @@ import { Sprincul, SprinculModel } from "../src/index.ts";
 
 /** Runs in the browser page served by run.ts. */
 
+// Measure the future default: events use data-on-*, and native on* attributes are left to the browser
+Sprincul.setOption("processNativeEvents", false);
+
 /** Times are Sprincul's own work; `withLayout` is the median including the browser's layout of what it changed. */
 export type Result = {
 	name: string;
@@ -125,8 +128,30 @@ class Child extends Tracked {
 
 const rowMarkup = (children = "") =>
 	`<div data-model="Row"><span data-bind-count="showCount"></span><span data-bind-label="showLabel"></span>` +
-	`<button onclick="increment">+</button>${children}</div>`;
+	`<button data-on-click="increment">+</button>${children}</div>`;
 const rows = (count: number) => rowMarkup().repeat(count);
+
+/*
+ * The same row as a custom element. A tag can only be defined once per page, so each sample registers a fresh
+ * copy under its own tag, over server-rendered markup already on the page, the way a page registers on load.
+ */
+let rowElementCount = 0;
+
+function rowElement() {
+	const n = ++rowElementCount;
+	const tag = `bench-row-${n}`;
+	const register = () =>
+		Sprincul.register(
+			`RowElement${n}`,
+			class extends Row {
+				static options = { customElement: tag };
+			},
+		);
+	const markup = (children = "") =>
+		`<${tag}><span data-bind-count="showCount"></span><span data-bind-label="showLabel"></span>` +
+		`<button data-on-click="increment">+</button>${children}</${tag}>`;
+	return { tag, register, markup, rows: (count: number) => markup().repeat(count) };
+}
 
 /** Forces style recalculation and layout of what the timed step changed. */
 const layout = () => document.body.getBoundingClientRect();
@@ -170,6 +195,18 @@ function timeFlush(write: () => void): Promise<Timing> {
 			resolve({ sprincul, layout: timeLayout() });
 		});
 	});
+}
+
+/*
+ * Times work that upgrades or removes custom elements, through the microtasks in which they mount or unmount.
+ * Those were queued during `work`, so they run before this await resumes.
+ */
+async function timeConnection(work: () => void): Promise<Timing> {
+	const start = performance.now();
+	work();
+	await Promise.resolve();
+	const sprincul = performance.now() - start;
+	return { sprincul, layout: timeLayout() };
 }
 
 /** Setup helpers settle layout before returning, so a timed step never pays for setup's DOM work. */
@@ -266,12 +303,57 @@ const scenarios = [
 			return timing;
 		},
 	}),
+	...(
+		[
+			["custom elements: 100 rows", (element) => element.rows(100), 50],
+			["custom elements: 1,000 rows", (element) => element.rows(1000), 20],
+			[
+				"custom elements: 10 rows, 100 nested each",
+				(element) => element.markup(element.rows(100)).repeat(10),
+				20,
+			],
+		] as const satisfies readonly [string, (element: ReturnType<typeof rowElement>) => string, number][]
+	).map(([name, markup, samples]) =>
+		scenario({
+			name,
+			samples,
+			sample: async () => {
+				const element = rowElement();
+				const root = attach(markup(element));
+				const timing = await timeConnection(element.register);
+				const models = modelsIn<Row>(root, element.tag);
+				expectEqual(models.filter(Boolean).length, models.length, "mounted rows");
+				expectAll(root, "[data-bind-count]", "0");
+				await release(root);
+				return timing;
+			},
+		}),
+	),
+	scenario({
+		name: "custom elements: remove 1,000 rows",
+		samples: 20,
+		sample: async () => {
+			const element = rowElement();
+			const root = attach(element.rows(1000));
+			element.register();
+			await Promise.resolve();
+			layout();
+			const models = modelsIn<Row>(root, element.tag);
+			const timing = await timeConnection(() => root.remove());
+			expectEqual(models.filter((model) => !model.$signal.aborted).length, 0, "rows still mounted");
+			return timing;
+		},
+	}),
 	teardown(
 		"unmount: 1 of 1,000 rows",
 		(_, models) => Sprincul.unmount(models[500]!.$el),
 		(models) => [models[500]!],
 	),
 	teardown("unmount: subtree of 1,000 rows", (root) => Sprincul.unmount(root)),
+	teardown("unmount and remove: 1,000 rows", (root) => {
+		void Sprincul.unmount(root);
+		root.remove();
+	}),
 	teardown("destroy: 1,000 rows by name", () => Sprincul.destroy("Row")),
 	teardown("destroyAll: 1,000 rows", () => Sprincul.destroyAll()),
 	scenario({
@@ -386,7 +468,7 @@ const scenarios = [
 			const items = Array.from({ length: 100 }, () => {
 				const li = document.createElement("li");
 				li.setAttribute("data-bind-count", "showCount");
-				li.setAttribute("onclick", "increment");
+				li.setAttribute("data-on-click", "increment");
 				return li;
 			});
 			const timing = timeSync(() => {
