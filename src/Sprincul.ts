@@ -31,6 +31,16 @@ export default class Sprincul {
 	static #deprecationsWarned = new Set<string>();
 	/** Instances with a still-pending async beforeInit. */
 	static #pendingBeforeInit = new WeakSet<SprinculModel>();
+	/** Tag name -> the name of the model a custom element was defined for. */
+	static #customElements = new Map<string, string>();
+	/** Connected custom elements waiting to mount, flushed together so nested ones mount first. */
+	static #pendingElements = new Set<HTMLElement>();
+	static #flushScheduled = false;
+	/** Disconnected custom elements, unmounted together in one microtask if they're still off the page. */
+	static #disconnectedElements = new Set<HTMLElement>();
+	static #unmountScheduled = false;
+	/** Custom elements whose unmount is still settling, so reconnecting waits for it. */
+	static #elementTeardowns = new WeakMap<HTMLElement, Promise<void>>();
 	/** Page-wide defaults from setOption(), below a call's options and a model's `static options`. */
 	static #options: SprinculOptions = { devMode: false, processNativeEvents: true };
 
@@ -111,6 +121,7 @@ export default class Sprincul {
 	 */
 	static register(name: string, modelClass: SprinculModelConstructor) {
 		Sprincul.#registry.set(name, modelClass);
+		Sprincul.#defineCustomElement(name, modelClass);
 	}
 
 	/**
@@ -124,6 +135,133 @@ export default class Sprincul {
 				continue;
 			}
 			Sprincul.#registry.set(name, cls as SprinculModelConstructor);
+			Sprincul.#defineCustomElement(name, cls as SprinculModelConstructor);
+		}
+	}
+
+	/** Defines the custom element a model opts into with `static options = { customElement }`. */
+	static #defineCustomElement(modelName: string, modelClass: SprinculModelConstructor): void {
+		const name = modelClass.options?.customElement;
+		if (!name || typeof customElements === "undefined") return;
+
+		if (customElements.get(name)) {
+			if (Sprincul.#customElements.get(name) !== modelName) {
+				console.warn(`[Sprincul] <${name}> is already defined, so "${modelName}" can't use it.`);
+			}
+			return;
+		}
+
+		class SprinculElement extends HTMLElement {
+			/** The mounted model, for debugging. Like onReady payloads, only devMode hands it out. */
+			get model(): SprinculModel | undefined {
+				return Sprincul.#option("devMode", modelClass) ? getInstance(this) : undefined;
+			}
+
+			connectedCallback() {
+				Sprincul.#queueMount(this);
+			}
+
+			disconnectedCallback() {
+				Sprincul.#queueUnmount(this);
+			}
+		}
+
+		try {
+			customElements.define(name, SprinculElement);
+		} catch (e) {
+			console.warn(`[Sprincul] Couldn't define <${name}> for "${modelName}":`, e);
+			return;
+		}
+		Sprincul.#customElements.set(name, modelName);
+	}
+
+	static #isCustomElement(element: Element): boolean {
+		return Sprincul.#customElements.has(element.localName);
+	}
+
+	static #queueMount(element: HTMLElement): void {
+		Sprincul.#pendingElements.add(element);
+		if (Sprincul.#flushScheduled) return;
+		Sprincul.#flushScheduled = true;
+
+		const flush = () => {
+			Sprincul.#flushScheduled = false;
+			Sprincul.#takePendingElements(document)
+				.sort(Sprincul.#childrenFirst)
+				.forEach((element) => Sprincul.#mountCustomElement(element));
+		};
+
+		// Defined before the parser reached them, they connect before their children exist
+		if (document.readyState === "loading") {
+			document.addEventListener("DOMContentLoaded", flush, { once: true });
+		} else {
+			queueMicrotask(flush);
+		}
+	}
+
+	static #queueUnmount(element: HTMLElement): void {
+		Sprincul.#disconnectedElements.add(element);
+		if (Sprincul.#unmountScheduled) return;
+		Sprincul.#unmountScheduled = true;
+
+		// A moved element is disconnected and reconnected in the same task, so it's skipped and keeps its model
+		queueMicrotask(() => {
+			Sprincul.#unmountScheduled = false;
+			const queued = Sprincul.#disconnectedElements;
+			Sprincul.#disconnectedElements = new Set();
+
+			const removed = Array.from(queued).filter((element) => !element.isConnected);
+			removed.forEach((element) => Sprincul.#pendingElements.delete(element));
+
+			// An element inside another removed one is covered by that one's teardown
+			const roots = removed.filter((element) => {
+				for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+					if (queued.has(parent)) return false;
+				}
+				return true;
+			});
+
+			const models = roots.flatMap((root) => Sprincul.#modelsWithin(root));
+			if (models.length === 0) return;
+
+			const teardown = Sprincul.#destroyModels(models, false).finally(() => {
+				removed.forEach((element) => {
+					if (Sprincul.#elementTeardowns.get(element) === teardown)
+						Sprincul.#elementTeardowns.delete(element);
+				});
+			});
+			removed.forEach((element) => Sprincul.#elementTeardowns.set(element, teardown));
+		});
+	}
+
+	/** Removes and returns the queued custom elements within `root` that are still on the page. */
+	static #takePendingElements(root: Node): HTMLElement[] {
+		const elements = Array.from(Sprincul.#pendingElements).filter((element) => root.contains(element));
+		elements.forEach((element) => Sprincul.#pendingElements.delete(element));
+		return elements.filter((element) => element.isConnected);
+	}
+
+	static #mountCustomElement(element: HTMLElement): SprinculModelInfo | null {
+		// Already mounted: moved, or mounted by hand
+		if (getInstance(element)) return null;
+
+		const modelName = Sprincul.#customElements.get(element.localName);
+		if (!modelName) return null;
+
+		const teardown = Sprincul.#elementTeardowns.get(element);
+		if (teardown) {
+			teardown.then(() => {
+				if (element.isConnected) Sprincul.#mountCustomElement(element);
+			});
+			return null;
+		}
+
+		try {
+			const instance = Sprincul.mount(element, modelName);
+			return { name: modelName, element, instance };
+		} catch (e) {
+			console.error(`[Sprincul] Failed to mount <${element.localName}>:`, e);
+			return null;
 		}
 	}
 
@@ -144,19 +282,26 @@ export default class Sprincul {
 
 		const root = options?.root ?? document.body;
 
-		const modelElements = Array.from(root.querySelectorAll<HTMLElement>("[data-model]"));
-		if (root instanceof HTMLElement && root.hasAttribute("data-model")) modelElements.unshift(root);
+		// Custom elements mount themselves; only the ones still queued are mounted here, in the same pass
+		const modelElements = Array.from(root.querySelectorAll<HTMLElement>("[data-model]")).filter(
+			(element) => !Sprincul.#isCustomElement(element),
+		);
+		if (root instanceof HTMLElement && root.hasAttribute("data-model") && !Sprincul.#isCustomElement(root)) {
+			modelElements.unshift(root);
+		}
+		if (document.readyState !== "loading") modelElements.push(...Sprincul.#takePendingElements(root));
 
-		// Children before parents; siblings keep document order
-		modelElements.sort((a, b) => {
-			if (a.contains(b)) return 1;
-			if (b.contains(a)) return -1;
-			return Sprincul.#documentOrder(a, b);
-		});
+		modelElements.sort(Sprincul.#childrenFirst);
 
 		const modelInfos: SprinculModelInfo[] = [];
 
 		modelElements.forEach((element) => {
+			if (Sprincul.#isCustomElement(element)) {
+				const info = Sprincul.#mountCustomElement(element);
+				if (info) modelInfos.push(info);
+				return;
+			}
+
 			try {
 				const info = Sprincul.processModelElement(
 					element as HTMLElement,
@@ -390,10 +535,13 @@ export default class Sprincul {
 			return Sprincul.#destroyOne(modelName, element);
 		}
 
-		const elements = [element, ...Array.from(element.querySelectorAll<HTMLElement>("[data-model]"))];
-		const models = elements.map((candidate) => getInstance(candidate)).filter((model) => model !== undefined);
+		return Sprincul.#destroyModels(Sprincul.#modelsWithin(element), true);
+	}
 
-		return Sprincul.#destroyModels(models as SprinculModel[], true);
+	/** The live models on `element` and inside it, in document order. */
+	static #modelsWithin(element: HTMLElement): SprinculModel[] {
+		const elements = [element, ...Array.from(element.querySelectorAll<HTMLElement>("[data-model]"))];
+		return elements.map((candidate) => getInstance(candidate)).filter((model) => model !== undefined);
 	}
 
 	/**
@@ -500,6 +648,13 @@ export default class Sprincul {
 		const models: SprinculModel[] = [];
 		Sprincul.#instancesByName.forEach((instances) => models.push(...instances));
 		return models.some((model) => model.$el === element && Sprincul.#teardowns.has(model));
+	}
+
+	/** Sort comparator for children before parents; siblings keep document order. */
+	static #childrenFirst(a: Element, b: Element): number {
+		if (a.contains(b)) return 1;
+		if (b.contains(a)) return -1;
+		return Sprincul.#documentOrder(a, b);
 	}
 
 	/** Sort comparator for document order (an ancestor comes before its descendants). */

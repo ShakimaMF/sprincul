@@ -17,6 +17,7 @@ const GLOBAL_KEYS = [
 	"HTMLSelectElement",
 	"Node",
 	"CustomEvent",
+	"customElements",
 	"requestAnimationFrame",
 ] as const;
 

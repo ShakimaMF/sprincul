@@ -2,6 +2,8 @@
 import { expect, test, describe, spyOn } from "bun:test";
 import { html } from "../helpers.ts";
 
+const tick = () => new Promise<void>((resolve) => queueMicrotask(resolve));
+
 describe("Sprincul - setOption()", () => {
 	test("sets a page-wide default that init() uses", () => {
 		class Modern extends SprinculModel {
@@ -12,6 +14,21 @@ describe("Sprincul - setOption()", () => {
 
 		Sprincul.setOption("processNativeEvents", false);
 		Sprincul.init();
+
+		expect(container.querySelector("button")!.getAttribute("onclick")).toBe("save");
+	});
+
+	test("reaches custom elements, which mount without init()", async () => {
+		Sprincul.setOption("processNativeEvents", false);
+
+		class Widget extends SprinculModel {
+			static options = { customElement: "widget-element" };
+
+			save() {}
+		}
+		Sprincul.register("Widget", Widget);
+		container.innerHTML = html`<widget-element><button onclick="save"></button></widget-element>`;
+		await tick();
 
 		expect(container.querySelector("button")!.getAttribute("onclick")).toBe("save");
 	});
@@ -36,6 +53,19 @@ describe("Sprincul - setOption()", () => {
 
 		expect(container.querySelector("#by-class")!.hasAttribute("onclick")).toBe(false);
 		expect(container.querySelector("#by-call button")!.hasAttribute("onclick")).toBe(true);
+	});
+
+	test("devMode set after a custom element is defined still exposes its instance", async () => {
+		class Widget extends SprinculModel {
+			static options = { customElement: "debug-widget" };
+		}
+		Sprincul.register("Widget", Widget);
+		container.innerHTML = html`<debug-widget></debug-widget>`;
+		await tick();
+
+		Sprincul.setOption("devMode", true);
+
+		expect((container.querySelector("debug-widget") as any).model).toBeInstanceOf(Widget);
 	});
 
 	test("mount()'s own devMode overrides the model's static options", () => {

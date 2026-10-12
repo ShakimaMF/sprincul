@@ -10,8 +10,12 @@ export type { SprinculModel };
  */
 export type SprinculOptions = { devMode: boolean; processNativeEvents: boolean };
 
-/** Options a model sets on itself with `static options`: the shared {@link SprinculOptions} */
-export type SprinculModelOptions = Partial<SprinculOptions>;
+/**
+ * Options a model sets on itself with `static options`, plus the shared {@link SprinculOptions}
+ *
+ * @var {string} customElement - Tag name of a custom element that mounts this model when added to the page and unmounts it when removed
+ */
+export type SprinculModelOptions = Partial<SprinculOptions> & { customElement?: string };
 
 export type SprinculModelConstructor = (new (element: HTMLElement) => SprinculModel) & {
 	options?: SprinculModelOptions;
