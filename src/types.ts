@@ -60,7 +60,8 @@ export type BoundDefaults = Record<string, BoundElementDefault>;
 export type DataValue<T> = T extends number ? number : T extends boolean ? boolean : T extends string ? string : T;
 
 /**
- * Options accepted by `init()`, plus the shared {@link SprinculOptions}
+ * Options accepted by `init()`, plus the shared {@link SprinculOptions}, which apply to `data-model` elements only:
+ * custom elements always mount with their model's `static options` and `Sprincul.setOption()`
  *
  * @var {HTMLElement | DocumentFragment} root - Scopes the scan to this element or fragment instead of the whole page. Default `document.body`.
  * @var {Function} onReady - Called once every model scanned is wired up and its init hooks are called

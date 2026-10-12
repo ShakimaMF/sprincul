@@ -208,6 +208,31 @@ describe("Sprincul - Custom elements", () => {
 		expect(childFromParent).toBe((container.querySelector("list-item") as any).model);
 	});
 
+	test("init()'s options don't apply to a custom element it mounts", () => {
+		class Widget extends SprinculModel {
+			static options = { customElement: "widget-element" };
+
+			save() {}
+		}
+		Sprincul.register("Widget", Widget);
+		container.innerHTML = html`<widget-element><button onclick="save"></button></widget-element>`;
+
+		let models: { instance?: unknown }[] = [];
+		const warn = spyOn(console, "warn").mockImplementation(() => {});
+		Sprincul.init({
+			root: container,
+			devMode: true,
+			processNativeEvents: false,
+			onReady: (ready: typeof models) => (models = ready),
+		});
+		warn.mockRestore();
+
+		// Mounted with the defaults: native on* bound and removed, and no instance in the payload
+		expect(container.querySelector("button")!.hasAttribute("onclick")).toBe(false);
+		expect(models).toHaveLength(1);
+		expect(models[0]!.instance).toBeUndefined();
+	});
+
 	test("element.model only returns the instance with devMode", async () => {
 		class Quiet extends SprinculModel {
 			static options = { customElement: "quiet-element" };

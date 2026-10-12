@@ -296,6 +296,8 @@ export default class Sprincul {
 		const modelInfos: SprinculModelInfo[] = [];
 
 		modelElements.forEach((element) => {
+			// A custom element mounts with its model's options and setOption()'s, never a call's, so it behaves
+			// the same whether it mounts here or on its own
 			if (Sprincul.#isCustomElement(element)) {
 				const info = Sprincul.#mountCustomElement(element);
 				if (info) modelInfos.push(info);
@@ -321,7 +323,11 @@ export default class Sprincul {
 
 		if (options?.onReady) {
 			const publicModels = modelInfos.map((info) =>
-				Sprincul.#option("devMode", Sprincul.#registry.get(info.name), options.devMode)
+				Sprincul.#option(
+					"devMode",
+					Sprincul.#registry.get(info.name),
+					Sprincul.#isCustomElement(info.element) ? undefined : options.devMode,
+				)
 					? info
 					: { name: info.name, element: info.element },
 			);
