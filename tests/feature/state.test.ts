@@ -6,7 +6,7 @@ describe("Sprincul - State Management", () => {
 	test("updates UI when state changes", async () => {
 		container.innerHTML = html`
 			<div data-model="TestModel">
-				<button onclick="increment">Increment</button>
+				<button data-on-click="increment">Increment</button>
 				<span data-bind-count="updateCount"></span>
 			</div>
 		`;
@@ -42,7 +42,7 @@ describe("Sprincul - State Management", () => {
 	test("updates multiple elements bound to same property", async () => {
 		container.innerHTML = html`
 			<div data-model="TestModel">
-				<button onclick="updateMessage">Update</button>
+				<button data-on-click="updateMessage">Update</button>
 				<span data-bind-message="updateText"></span>
 				<div data-bind-message="updateText"></div>
 			</div>
@@ -82,7 +82,7 @@ describe("Sprincul - State Management", () => {
 	test("updates computed properties when dependencies change", async () => {
 		container.innerHTML = html`
 			<div data-model="TestModel">
-				<button onclick="increment">Increment</button>
+				<button data-on-click="increment">Increment</button>
 				<span data-bind-doubled="updateDoubled"></span>
 			</div>
 		`;
@@ -119,7 +119,7 @@ describe("Sprincul - State Management", () => {
 	test("batches multiple state changes into single render pass", async () => {
 		container.innerHTML = html`
 			<div data-model="TestModel">
-				<button onclick="multipleChanges">Update Multiple</button>
+				<button data-on-click="multipleChanges">Update Multiple</button>
 				<span data-bind-count="updateCount"></span>
 			</div>
 		`;

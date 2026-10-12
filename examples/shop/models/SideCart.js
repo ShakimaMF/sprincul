@@ -7,6 +7,8 @@ import { Pricing } from "../lib/pricing.js";
  * or the discount, and its totals are computed properties.
  */
 export default class SideCart extends SprinculModel {
+	static options = { customElement: "side-cart" };
+
 	/** The element focused before the cart opened, refocused when it closes. */
 	#returnFocus = null;
 

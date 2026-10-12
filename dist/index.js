@@ -261,10 +261,12 @@ var map = (initial = {}) => {
 class SprinculCore {
   instance;
   devMode;
+  processNativeEvents;
   #bindings = new Map;
   #bindingsByElement = new Map;
   #computed = new Map;
   #domListeners = new Set;
+  #listenerKeys = new WeakMap;
   #unsubscribers = new Set;
   #pendingUpdates = new Set;
   #updateScheduled = false;
@@ -272,9 +274,11 @@ class SprinculCore {
   #frameCallbacks = [];
   #pendingListeners = [];
   #isBrowser;
-  constructor(instance, devMode = false) {
+  static #nativeEventsWarned = false;
+  constructor(instance, devMode = false, processNativeEvents = true) {
     this.instance = instance;
     this.devMode = devMode;
+    this.processNativeEvents = processNativeEvents;
     this.#isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
   }
   static createStateProxy(stateStore, getCoreRef) {
@@ -377,6 +381,7 @@ class SprinculCore {
         return;
       record.element.removeEventListener(record.type, record.listener, record.options);
       this.#domListeners.delete(record);
+      this.#listenerKeys.delete(record.element);
     });
     this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter((binding) => !isInScope(binding.element));
     this.#pendingListeners = this.#pendingListeners.filter((listener) => !isInScope(listener.element));
@@ -389,7 +394,7 @@ class SprinculCore {
     queuedCallbacks.forEach((binding) => this.#updateElement(binding));
     const queuedListeners = this.#pendingListeners;
     this.#pendingListeners = [];
-    queuedListeners.forEach(({ element, eventName, methodName }) => this.#attachListener(element, eventName, methodName));
+    queuedListeners.forEach(({ element, attributeName, eventName, methodName }) => this.#attachListener(element, attributeName, eventName, methodName));
   }
   #processTree(container, options) {
     const owner = this.instance.$el.contains(container) ? this.instance.$el : null;
@@ -457,6 +462,7 @@ class SprinculCore {
       element.removeEventListener(type, listener, options);
     });
     this.#domListeners.clear();
+    this.#listenerKeys = new WeakMap;
     this.#bindings.clear();
     this.#bindingsByElement.clear();
     this.#computed.clear();
@@ -519,29 +525,57 @@ class SprinculCore {
         }
         return;
       }
-      if (this.#isEventAttribute(element, attr.name)) {
+      if (attr.name.startsWith("data-on-") && attr.name.length > "data-on-".length) {
+        this.#queueListener(element, attr.name, attr.name.substring("data-on-".length), attr.value, options);
+        return;
+      }
+      if (this.processNativeEvents && this.#isEventAttribute(element, attr.name)) {
         const eventName = attr.name.substring(2);
-        const methodName = attr.value;
         element.removeAttribute(attr.name);
-        if (options.deferCallbacks) {
-          this.#pendingListeners.push({ element, eventName, methodName });
+        if (element.hasAttribute(`data-on-${eventName}`)) {
+          this.#warn(`Element has both ${attr.name} and data-on-${eventName}; using data-on-${eventName}.`);
           return;
         }
-        this.#attachListener(element, eventName, methodName);
+        if (typeof Reflect.get(this.instance, attr.value) === "function") {
+          this.#warnNativeEvent(attr.name, eventName, attr.value);
+        }
+        this.#queueListener(element, attr.name, eventName, attr.value, options);
       }
     });
+  }
+  #warnNativeEvent(attributeName, eventName, methodName) {
+    if (SprinculCore.#nativeEventsWarned)
+      return;
+    SprinculCore.#nativeEventsWarned = true;
+    console.warn(`[Sprincul] Binding native event attributes such as ${attributeName}="${methodName}" is deprecated and will stop in a future release; use data-on-${eventName}="${methodName}" instead. To opt in early, call Sprincul.setOption("processNativeEvents", false).`);
+  }
+  #queueListener(element, attributeName, eventName, methodName, options) {
+    if (options.deferCallbacks) {
+      this.#pendingListeners.push({ element, attributeName, eventName, methodName });
+      return;
+    }
+    this.#attachListener(element, attributeName, eventName, methodName);
   }
   #isEventAttribute(element, attributeName) {
     if (!attributeName.startsWith("on") || attributeName.length <= 2)
       return false;
     return attributeName in element || this.#isBrowser && attributeName in window;
   }
-  #attachListener(element, eventName, methodName) {
+  #attachListener(element, attributeName, eventName, methodName) {
     const eventFn = Reflect.get(this.instance, methodName);
     if (typeof eventFn !== "function") {
-      this.#warn(`Event handler method "${methodName}" not found for on${eventName}.`);
+      this.#warn(`Event handler method "${methodName}" not found for ${attributeName}.`);
       return;
     }
+    const key = `${eventName}:${methodName}`;
+    let keys = this.#listenerKeys.get(element);
+    if (!keys) {
+      keys = new Set;
+      this.#listenerKeys.set(element, keys);
+    }
+    if (keys.has(key))
+      return;
+    keys.add(key);
     const listener = (e) => {
       try {
         eventFn.call(this.instance, e);
@@ -656,6 +690,7 @@ function abortSignal(model) {
 var MALFORMED = Symbol("malformed");
 
 class SprinculModel {
+  static options;
   $el;
   #state;
   state;
@@ -806,6 +841,13 @@ class Sprincul {
   static #teardowns = new WeakMap;
   static #deprecationsWarned = new Set;
   static #pendingBeforeInit = new WeakSet;
+  static #customElements = new Map;
+  static #pendingElements = new Set;
+  static #flushScheduled = false;
+  static #disconnectedElements = new Set;
+  static #unmountScheduled = false;
+  static #elementTeardowns = new WeakMap;
+  static #options = { devMode: false, processNativeEvents: true };
   static store = {
     get(key) {
       const store = Sprincul.#globalStores.get(key);
@@ -842,8 +884,19 @@ class Sprincul {
       Sprincul.#globalStores.clear();
     }
   };
+  static setOption(name, value) {
+    if (!Object.prototype.hasOwnProperty.call(Sprincul.#options, name)) {
+      console.warn(`[Sprincul] setOption() was given an unknown option "${String(name)}".`);
+      return;
+    }
+    Sprincul.#options[name] = value;
+  }
+  static #option(name, modelClass, callValue) {
+    return callValue ?? modelClass?.options?.[name] ?? Sprincul.#options[name];
+  }
   static register(name, modelClass) {
     Sprincul.#registry.set(name, modelClass);
+    Sprincul.#defineCustomElement(name, modelClass);
   }
   static registerAll(models) {
     for (const [name, cls] of Object.entries(models)) {
@@ -852,6 +905,112 @@ class Sprincul {
         continue;
       }
       Sprincul.#registry.set(name, cls);
+      Sprincul.#defineCustomElement(name, cls);
+    }
+  }
+  static #defineCustomElement(modelName, modelClass) {
+    const name = modelClass.options?.customElement;
+    if (!name || typeof customElements === "undefined")
+      return;
+    if (customElements.get(name)) {
+      if (Sprincul.#customElements.get(name) !== modelName) {
+        console.warn(`[Sprincul] <${name}> is already defined, so "${modelName}" can't use it.`);
+      }
+      return;
+    }
+
+    class SprinculElement extends HTMLElement {
+      get model() {
+        return Sprincul.#option("devMode", modelClass) ? getInstance(this) : undefined;
+      }
+      connectedCallback() {
+        Sprincul.#queueMount(this);
+      }
+      disconnectedCallback() {
+        Sprincul.#queueUnmount(this);
+      }
+    }
+    try {
+      customElements.define(name, SprinculElement);
+    } catch (e) {
+      console.warn(`[Sprincul] Couldn't define <${name}> for "${modelName}":`, e);
+      return;
+    }
+    Sprincul.#customElements.set(name, modelName);
+  }
+  static #isCustomElement(element) {
+    return Sprincul.#customElements.has(element.localName);
+  }
+  static #queueMount(element) {
+    Sprincul.#pendingElements.add(element);
+    if (Sprincul.#flushScheduled)
+      return;
+    Sprincul.#flushScheduled = true;
+    const flush = () => {
+      Sprincul.#flushScheduled = false;
+      Sprincul.#takePendingElements(document).sort(Sprincul.#childrenFirst).forEach((element) => Sprincul.#mountCustomElement(element));
+    };
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", flush, { once: true });
+    } else {
+      queueMicrotask(flush);
+    }
+  }
+  static #queueUnmount(element) {
+    Sprincul.#disconnectedElements.add(element);
+    if (Sprincul.#unmountScheduled)
+      return;
+    Sprincul.#unmountScheduled = true;
+    queueMicrotask(() => {
+      Sprincul.#unmountScheduled = false;
+      const queued = Sprincul.#disconnectedElements;
+      Sprincul.#disconnectedElements = new Set;
+      const removed = Array.from(queued).filter((element) => !element.isConnected);
+      removed.forEach((element) => Sprincul.#pendingElements.delete(element));
+      const roots = removed.filter((element) => {
+        for (let parent = element.parentElement;parent; parent = parent.parentElement) {
+          if (queued.has(parent))
+            return false;
+        }
+        return true;
+      });
+      const models = roots.flatMap((root) => Sprincul.#modelsWithin(root));
+      if (models.length === 0)
+        return;
+      const teardown = Sprincul.#destroyModels(models, false).finally(() => {
+        removed.forEach((element) => {
+          if (Sprincul.#elementTeardowns.get(element) === teardown)
+            Sprincul.#elementTeardowns.delete(element);
+        });
+      });
+      removed.forEach((element) => Sprincul.#elementTeardowns.set(element, teardown));
+    });
+  }
+  static #takePendingElements(root) {
+    const elements = Array.from(Sprincul.#pendingElements).filter((element) => root.contains(element));
+    elements.forEach((element) => Sprincul.#pendingElements.delete(element));
+    return elements.filter((element) => element.isConnected);
+  }
+  static #mountCustomElement(element) {
+    if (getInstance(element))
+      return null;
+    const modelName = Sprincul.#customElements.get(element.localName);
+    if (!modelName)
+      return null;
+    const teardown = Sprincul.#elementTeardowns.get(element);
+    if (teardown) {
+      teardown.then(() => {
+        if (element.isConnected)
+          Sprincul.#mountCustomElement(element);
+      });
+      return null;
+    }
+    try {
+      const instance = Sprincul.mount(element, modelName);
+      return { name: modelName, element, instance };
+    } catch (e) {
+      console.error(`[Sprincul] Failed to mount <${element.localName}>:`, e);
+      return null;
     }
   }
   static init(options) {
@@ -859,22 +1018,24 @@ class Sprincul {
       console.warn("[Sprincul] init() called in non-browser environment. Skipping initialization.");
       return;
     }
-    const devMode = options?.devMode ?? false;
     const root = options?.root ?? document.body;
-    const modelElements = Array.from(root.querySelectorAll("[data-model]"));
-    if (root instanceof HTMLElement && root.hasAttribute("data-model"))
+    const modelElements = Array.from(root.querySelectorAll("[data-model]")).filter((element) => !Sprincul.#isCustomElement(element));
+    if (root instanceof HTMLElement && root.hasAttribute("data-model") && !Sprincul.#isCustomElement(root)) {
       modelElements.unshift(root);
-    modelElements.sort((a, b) => {
-      if (a.contains(b))
-        return 1;
-      if (b.contains(a))
-        return -1;
-      return Sprincul.#documentOrder(a, b);
-    });
+    }
+    if (document.readyState !== "loading")
+      modelElements.push(...Sprincul.#takePendingElements(root));
+    modelElements.sort(Sprincul.#childrenFirst);
     const modelInfos = [];
     modelElements.forEach((element) => {
+      if (Sprincul.#isCustomElement(element)) {
+        const info = Sprincul.#mountCustomElement(element);
+        if (info)
+          modelInfos.push(info);
+        return;
+      }
       try {
-        const info = Sprincul.processModelElement(element, devMode);
+        const info = Sprincul.processModelElement(element, options?.devMode, options?.processNativeEvents);
         if (info)
           modelInfos.push(info);
       } catch (e) {
@@ -885,7 +1046,7 @@ class Sprincul {
       element.removeAttribute("data-cloaked");
     });
     if (options?.onReady) {
-      const publicModels = devMode ? modelInfos : modelInfos.map(({ name, element }) => ({ name, element }));
+      const publicModels = modelInfos.map((info) => Sprincul.#option("devMode", Sprincul.#registry.get(info.name), Sprincul.#isCustomElement(info.element) ? undefined : options.devMode) ? info : { name: info.name, element: info.element });
       try {
         options.onReady(publicModels);
       } catch (error) {
@@ -893,7 +1054,7 @@ class Sprincul {
       }
     }
   }
-  static processModelElement(element, devMode = false) {
+  static processModelElement(element, devModeOption, processNativeEventsOption) {
     const modelName = element.dataset.model;
     if (!modelName) {
       console.warn('[Sprincul] Element is missing a "data-model" attribute. Skipping.');
@@ -904,6 +1065,8 @@ class Sprincul {
       console.warn(`[Sprincul] The model "${modelName}" is not registered. Skipping.`);
       return null;
     }
+    const devMode = Sprincul.#option("devMode", ModelClass, devModeOption);
+    const processNativeEvents = Sprincul.#option("processNativeEvents", ModelClass, processNativeEventsOption);
     if (Sprincul.#processedElements.has(element)) {
       if (devMode && Sprincul.#tearingDown(element)) {
         console.warn(`[Sprincul] Skipped "${modelName}": the model on this element is still running an async beforeDestroy(). Await unmount() before mounting it again.`);
@@ -916,7 +1079,7 @@ class Sprincul {
     let defaults;
     try {
       model = new ModelClass(element);
-      core = new SprinculCore(model, devMode);
+      core = new SprinculCore(model, devMode, processNativeEvents);
       setCore(model, core);
       Sprincul.#trackModelInstance(modelName, model);
       defaults = core.setupBindings(element);
@@ -989,10 +1152,9 @@ class Sprincul {
     }
     const previousModelName = element.dataset.model;
     element.dataset.model = modelName;
-    const devMode = options?.devMode ?? false;
     let info;
     try {
-      info = Sprincul.processModelElement(element, devMode);
+      info = Sprincul.processModelElement(element, options?.devMode, options?.processNativeEvents);
     } catch (e) {
       Sprincul.#restoreModelName(element, previousModelName);
       throw e;
@@ -1002,7 +1164,7 @@ class Sprincul {
       throw new Error(`Failed to mount model on element. It may already be processed. Call unmount() first.`);
     }
     if (options?.onReady) {
-      const publicInfo = devMode ? info : { name: info.name, element: info.element };
+      const publicInfo = Sprincul.#option("devMode", Sprincul.#registry.get(modelName), options.devMode) ? info : { name: info.name, element: info.element };
       try {
         options.onReady(publicInfo);
       } catch (error) {
@@ -1016,9 +1178,11 @@ class Sprincul {
       Sprincul.#warnDeprecated("unmount(element, modelName)", "unmount(element)");
       return Sprincul.#destroyOne(modelName, element);
     }
+    return Sprincul.#destroyModels(Sprincul.#modelsWithin(element), true);
+  }
+  static #modelsWithin(element) {
     const elements = [element, ...Array.from(element.querySelectorAll("[data-model]"))];
-    const models = elements.map((candidate) => getInstance(candidate)).filter((model) => model !== undefined);
-    return Sprincul.#destroyModels(models, true);
+    return elements.map((candidate) => getInstance(candidate)).filter((model) => model !== undefined);
   }
   static destroy(modelName, element) {
     if (element) {
@@ -1078,6 +1242,13 @@ class Sprincul {
     const models = [];
     Sprincul.#instancesByName.forEach((instances) => models.push(...instances));
     return models.some((model) => model.$el === element && Sprincul.#teardowns.has(model));
+  }
+  static #childrenFirst(a, b) {
+    if (a.contains(b))
+      return 1;
+    if (b.contains(a))
+      return -1;
+    return Sprincul.#documentOrder(a, b);
   }
   static #documentOrder(a, b) {
     return a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1;
@@ -1158,4 +1329,4 @@ export {
   SprinculModel
 };
 
-//# debugId=0A29C8708E877EB664756E2164756E21
+//# debugId=4D79AA87E2BA8B9C64756E2164756E21

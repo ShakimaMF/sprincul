@@ -1,5 +1,5 @@
 /*
- * Every model the shop uses, exported under the name its markup refers to in data-model.
+ * Every model the shop uses. Each defines its own custom element through `static options`.
  */
 import CartToggle from "./CartToggle.js";
 import Catalog from "./Catalog.js";

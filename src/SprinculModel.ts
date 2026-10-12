@@ -1,7 +1,7 @@
 import { map, type MapStore } from "nanostores";
 import { SprinculCore } from "./SprinculCore";
 import { getCore, getInstance, getSignal } from "./registry";
-import type { BoundDefaults, DataValue } from "./types";
+import type { BoundDefaults, DataValue, SprinculModelOptions } from "./types";
 
 /** Returned by #parseData for a value that can't be read as the fallback's type. */
 const MALFORMED = Symbol("malformed");
@@ -12,6 +12,9 @@ const MALFORMED = Symbol("malformed");
  * @description Users can extend this class to create their own reactive components
  */
 export default class SprinculModel {
+	/** Options for every instance of this model; `init()`/`mount()` options override them per call. */
+	static options?: SprinculModelOptions;
+
 	$el: HTMLElement;
 	readonly #state: MapStore<Record<string, any>>;
 	state!: Record<string, any>;

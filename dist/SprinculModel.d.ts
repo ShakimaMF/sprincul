@@ -1,4 +1,4 @@
-import type { BoundDefaults, DataValue } from "./types";
+import type { BoundDefaults, DataValue, SprinculModelOptions } from "./types";
 /**
  * @class SprinculModel Base class for user models
  *
@@ -6,6 +6,8 @@ import type { BoundDefaults, DataValue } from "./types";
  */
 export default class SprinculModel {
     #private;
+    /** Options for every instance of this model; `init()`/`mount()` options override them per call. */
+    static options?: SprinculModelOptions;
     $el: HTMLElement;
     state: Record<string, any>;
     constructor(element: HTMLElement);

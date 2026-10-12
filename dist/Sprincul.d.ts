@@ -1,5 +1,5 @@
 import SprinculModel from "./SprinculModel";
-import type { SprinculInitOptions, SprinculModelConstructor, SprinculModelInfo, SprinculMountOptions } from "./types";
+import type { SprinculInitOptions, SprinculModelConstructor, SprinculModelInfo, SprinculMountOptions, SprinculOptions } from "./types";
 /**
  * @class Sprincul
  * @description Static registry and factory. Manages model registration, initialization, and lifecycle.
@@ -17,6 +17,11 @@ export default class Sprincul {
         }): () => void;
         clear(): void;
     };
+    /**
+     * Set a page-wide default for an option. A model's `static options` and the options passed to
+     * `init()`/`mount()` still override it. Call it before registering or mounting models.
+     */
+    static setOption<K extends keyof SprinculOptions>(name: K, value: SprinculOptions[K]): void;
     /**
      * Register a single model class
      */
@@ -43,11 +48,12 @@ export default class Sprincul {
      * Creates both the user model instance and internal core instance
      *
      * @param {HTMLElement} element
-     * @param {Boolean} devMode
+     * @param devModeOption - See `SprinculOptions`; omitted, it falls back like any other option
+     * @param processNativeEventsOption - See `SprinculOptions`; omitted, it falls back like any other option
      *
      * @returns The model info, or `null` if the element couldn't be processed
      */
-    static processModelElement(element: HTMLElement, devMode?: boolean): SprinculModelInfo | null;
+    static processModelElement(element: HTMLElement, devModeOption?: boolean, processNativeEventsOption?: boolean): SprinculModelInfo | null;
     /**
      * Manually mount a model instance on a specific element
      *

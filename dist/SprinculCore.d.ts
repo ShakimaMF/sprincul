@@ -9,7 +9,8 @@ export declare class SprinculCore {
     #private;
     instance: SprinculModel;
     private devMode;
-    constructor(instance: SprinculModel, devMode?: boolean);
+    private processNativeEvents;
+    constructor(instance: SprinculModel, devMode?: boolean, processNativeEvents?: boolean);
     static createStateProxy(stateStore: MapStore<Record<string, any>>, getCoreRef: () => SprinculCore | undefined): Record<string, any>;
     setupBindings(container: HTMLElement): BoundDefaults;
     processAddedElement(content: HTMLElement | DocumentFragment): void;
@@ -18,7 +19,7 @@ export declare class SprinculCore {
      */
     unwireElement(element: HTMLElement): void;
     /**
-     * Fires the initial data-bind-* callbacks and attaches the queued on* listeners from
+     * Fires the initial data-bind-* callbacks and attaches the queued data-on-* and on* listeners from
      * setupBindings(). Call once beforeInit has genuinely finished, so a user interaction
      * can't reach a model method before its state is seeded.
      */
