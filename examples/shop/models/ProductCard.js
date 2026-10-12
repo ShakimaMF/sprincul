@@ -8,6 +8,8 @@ import { Cart } from "../lib/cart.js";
  * It keeps its "in cart" badge in sync through the global store.
  */
 export default class ProductCard extends SprinculModel {
+	static options = { customElement: "product-card" };
+
 	/** @param {import("sprincul").BoundDefaults} defaults */
 	beforeInit(defaults) {
 		this.state.name = defaults.name?.text.trim() ?? "";

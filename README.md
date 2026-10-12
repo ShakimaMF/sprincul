@@ -14,8 +14,9 @@ Sprincul is a lightweight, browser-side JS framework for adding reactivity to HT
 - State and reactivity are powered by plain JavaScript classes.
 - Uses [nanostores](https://github.com/nanostores/nanostores) under the hood for efficient reactive state management.
 - Bind state to the DOM with standard `data-*` attributes.
-- Use familiar event attributes like `onclick` and `oninput`; Sprincul converts them into proper listeners on your model instances.
+- Bind events with `data-on-click`, `data-on-input`, and so on; Sprincul converts them into proper listeners on your model instances and they work under a strict CSP.
 - Supports computed properties that automatically update when dependencies change.
+- Turn a model into a custom element with the `customElement` option, so it mounts and cleans up after itself.
 - Includes a minimal global store for cross-component communication.
 
 ## How it compares
@@ -31,7 +32,7 @@ This is not meant to compete with either project. The goal is to offer another w
 ## How it works
 
 - Each piece of interactive HTML on your page is a **model**: a container element marked with `data-model="<Name>"`, paired with a plain JavaScript class of the same name.
-- The class holds state and the methods that react to it. Bindings (`data-bind-<prop>="<callback>"`) connect state changes to the DOM; event attributes (`onclick`, `oninput`, etc.) connect user interaction to the class.
+- The class holds state and the methods that react to it. Bindings (`data-bind-<prop>="<callback>"`) connect state changes to the DOM; event attributes (`data-on-click`, `data-on-input`, etc.) connect user interaction to the class.
 - Sprincul reads this markup once and wires it up: state changes flow through your methods to update the DOM, and DOM events flow through your methods to update the state.
 
 <img alt="Sprincul Overview Diagram" src="https://github.com/user-attachments/assets/57b448c7-c3ba-4f09-bdca-83b5c64c519e" />
@@ -75,7 +76,7 @@ The full reference lives in the [wiki](https://github.com/ShakimaMF/sprincul/wik
 
 - [Getting Started](https://github.com/ShakimaMF/sprincul/wiki/Getting-Started) - how it works, installation, and a quick start walkthrough
 - [Data Bindings](https://github.com/ShakimaMF/sprincul/wiki/Data-Bindings) - connect `this.state` to the DOM with `data-bind-<prop>`
-- [Events](https://github.com/ShakimaMF/sprincul/wiki/Events) - wire up `onclick`, `oninput`, and other native event attributes
+- [Events](https://github.com/ShakimaMF/sprincul/wiki/Events) - bind events to model methods with `data-on-click`, `data-on-input`, and so on
 - [Model Events](https://github.com/ShakimaMF/sprincul/wiki/Model-Events) - `$emit`, `$listen`, and `$signal` for talking between models and cleaning up automatically
 - [Refs](https://github.com/ShakimaMF/sprincul/wiki/Refs) - read elements with `data-ref`, `$ref()`, and `$refs()`
 - [Model Data](https://github.com/ShakimaMF/sprincul/wiki/Model-Data) - read typed config from the model root's data attributes with `$data()`
@@ -83,6 +84,7 @@ The full reference lives in the [wiki](https://github.com/ShakimaMF/sprincul/wik
 - [Mounting & Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting) - `init()`, `mount()`, `unmount()`, `destroyAll()`, and their options
 - [Lifecycle & Hydration](https://github.com/ShakimaMF/sprincul/wiki/Lifecycle-and-Hydration) - `beforeInit`, `afterInit`, `beforeDestroy`, cloaking, and hydrating from server-rendered defaults
 - [Wiring Dynamic Content](https://github.com/ShakimaMF/sprincul/wiki/Wiring-Dynamic-Content) - `this.wire()` for content added inside a live model
+- [Custom Elements](https://github.com/ShakimaMF/sprincul/wiki/Custom-Elements) - the `customElement` option gives a model its own element that mounts and cleans up after itself
 - [Global Store](https://github.com/ShakimaMF/sprincul/wiki/Global-Store) - the shared key/value store across models
 - [Reactivity & Batching](https://github.com/ShakimaMF/sprincul/wiki/Reactivity-and-Batching) - how DOM updates are batched
 - [TypeScript](https://github.com/ShakimaMF/sprincul/wiki/TypeScript) - typing `this.state`
@@ -94,6 +96,7 @@ Try the [live demo](https://shakimamf.github.io/sprincul/), a product listing wi
 
 ## Tips for success
 
+- Bind events with `data-on-*` and call `Sprincul.setOption("processNativeEvents", false)` before registering models. Binding native `on*` attributes is deprecated, and this opts in to the future behavior now.
 - Pick one direction for updates and stay consistent. If bindings render the UI, let them own the DOM. If user input updates state, avoid mixing that with ad hoc DOM manipulation.
 
 ## License

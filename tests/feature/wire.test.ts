@@ -3,7 +3,7 @@ import { expect, test, describe, spyOn } from "bun:test";
 import { html, waitForDomUpdate } from "../helpers.ts";
 
 describe("Sprincul - Wiring Dynamic Content", () => {
-	test("wire() binds data-bind-*/on* attributes on new content added inside a live model's subtree", async () => {
+	test("wire() binds data-bind-*/data-on-* attributes on new content added inside a live model's subtree", async () => {
 		class ListModel extends SprinculModel {
 			beforeInit() {
 				this.state.lastclicked = "";
@@ -12,7 +12,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 			addItem(text: string) {
 				const li = document.createElement("li");
 				li.setAttribute("data-bind-lastclicked", "showClicked");
-				li.setAttribute("onclick", "handleClick");
+				li.setAttribute("data-on-click", "handleClick");
 				li.dataset.label = text;
 				this.$el.querySelector("ul")!.appendChild(li);
 				this.wire(li);
@@ -39,8 +39,6 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		await waitForDomUpdate();
 
 		expect(li.textContent).toBe("Apple");
-		// on* attribute is stripped once bound, same as any other event wiring
-		expect(li.hasAttribute("onclick")).toBe(false);
 	});
 
 	test("wire() binds every new child in one call: wiring a shared container after adding several items at once", async () => {
@@ -53,7 +51,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 				const list = this.$el.querySelector("ul")!;
 				labels.forEach((label) => {
 					const li = document.createElement("li");
-					li.setAttribute("onclick", "bump");
+					li.setAttribute("data-on-click", "bump");
 					li.textContent = label;
 					list.appendChild(li);
 				});
@@ -79,7 +77,6 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		await waitForDomUpdate();
 
 		expect(instance.state.count).toBe(3);
-		items.forEach((li) => expect(li.hasAttribute("onclick")).toBe(false));
 	});
 
 	test("wire() does not auto-mount a nested [data-model] element found inside the wired content", async () => {
@@ -169,7 +166,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		const list = el.querySelector("ul")!;
 
 		const li = document.createElement("li");
-		li.setAttribute("onclick", "bump");
+		li.setAttribute("data-on-click", "bump");
 		list.appendChild(li);
 
 		instance.wire(list);
@@ -210,7 +207,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		expect(instance.renderCount).toBe(1);
 	});
 
-	test("unwire() detaches on* listeners so removed content stops receiving events and doesn't leak", async () => {
+	test("unwire() detaches data-on-* listeners so removed content stops receiving events and doesn't leak", async () => {
 		class ListModel extends SprinculModel {
 			beforeInit() {
 				this.state.count = 0;
@@ -228,7 +225,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		const list = el.querySelector("ul")!;
 
 		const li = document.createElement("li");
-		li.setAttribute("onclick", "bump");
+		li.setAttribute("data-on-click", "bump");
 		list.appendChild(li);
 		instance.wire(li);
 
@@ -302,7 +299,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 
 		const wrapper = document.createElement("div");
 		const child = document.createElement("button");
-		child.setAttribute("onclick", "bump");
+		child.setAttribute("data-on-click", "bump");
 		wrapper.appendChild(child);
 		el.appendChild(wrapper);
 		instance.wire(wrapper);
@@ -330,7 +327,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 				listEl.innerHTML = "";
 
 				const row = document.createElement("li");
-				row.setAttribute("onclick", "pickRow");
+				row.setAttribute("data-on-click", "pickRow");
 				row.textContent = String(this.state.rows);
 				listEl.appendChild(row);
 
@@ -510,7 +507,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 			const li = document.createElement("li");
 			li.dataset.label = label;
 			li.setAttribute("data-bind-qty", "showQty");
-			li.setAttribute("onclick", "bump");
+			li.setAttribute("data-on-click", "bump");
 			return li;
 		}
 
@@ -602,7 +599,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		container.appendChild(el);
 		const instance = Sprincul.mount(el, ListModel, { devMode: true });
 		const outside = document.createElement("button");
-		outside.setAttribute("onclick", "bump");
+		outside.setAttribute("data-on-click", "bump");
 		container.appendChild(outside);
 
 		instance.wire(outside);

@@ -45,7 +45,7 @@ describe("Sprincul - Memory", () => {
 
 		const el = document.createElement("div");
 		el.setAttribute("data-model", "Busy");
-		el.innerHTML = html`<button onclick="show"></button>
+		el.innerHTML = html`<button data-on-click="show"></button>
 			<div data-model="Child" data-ref="child"></div>`;
 		container.appendChild(el);
 

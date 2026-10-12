@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add `data-on-<event>` attributes as the preferred way to bind events, safe under a strict CSP. Unlike native `on<event>` attributes, which still work, they stay in the DOM once bound. When an element has both for the same event, `data-on-<event>` wins and a `devMode` warning is logged. See [Events](https://github.com/ShakimaMF/sprincul/wiki/Events).
+- Add a transitional `processNativeEvents` option to `init()` and `mount()` (default `true`). Set `false` to opt in early to native `on*` attributes being left to the browser. See [Events](https://github.com/ShakimaMF/sprincul/wiki/Events#native-on-attributes).
+- Add `Sprincul.setOption()` for page-wide defaults, and `static options` for a model to set its own `devMode` and `processNativeEvents`. Options passed to `init()`/`mount()` override a model's, which override `setOption()`. See [Mounting and Unmounting](https://github.com/ShakimaMF/sprincul/wiki/Mounting-and-Unmounting#initialization-options).
+- Add a `customElement` model option for giving a model its own custom element, which mounts the model when added to the page and unmounts it when removed. See [Custom Elements](https://github.com/ShakimaMF/sprincul/wiki/Custom-Elements).
+- Export the `SprinculOptions` and `SprinculModelOptions` types.
+
+### Deprecated
+
+- Binding native `on<event>` attributes to model methods: use `data-on-<event>` instead. It still works for now and warns once per page.
+
 ## [0.4.0] - 2026-10-04
 
 ### Added
@@ -105,6 +119,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Initial release._
 
+[Unreleased]: https://github.com/ShakimaMF/sprincul/compare/v0.4.0...HEAD
 [0.4.0]: https://github.com/ShakimaMF/sprincul/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ShakimaMF/sprincul/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/ShakimaMF/sprincul/compare/v0.1.0...v0.2.1
