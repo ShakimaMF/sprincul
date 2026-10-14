@@ -13,8 +13,7 @@ Sprincul is a lightweight, browser-side JS framework for adding reactivity to HT
 
 - State and reactivity are powered by plain JavaScript classes.
 - Uses [nanostores](https://github.com/nanostores/nanostores) under the hood for efficient reactive state management.
-- Bind state to the DOM with standard `data-*` attributes.
-- Bind events with `data-on-click`, `data-on-input`, and so on; Sprincul converts them into proper listeners on your model instances and they work under a strict CSP.
+- Bind state and events to the DOM with standard `data-*` attributes.
 - Supports computed properties that automatically update when dependencies change.
 - Turn a model into a custom element with the `customElement` option, so it mounts and cleans up after itself.
 - Includes a minimal global store for cross-component communication.
@@ -95,8 +94,6 @@ The full reference lives in the [wiki](https://github.com/ShakimaMF/sprincul/wik
 Try the [live demo](https://shakimamf.github.io/sprincul/), a product listing with a side cart. Its source is in [`examples/`](examples); run it locally with `bun run example`. For more usage patterns, see the tests under `tests`.
 
 ## Tips for success
-
-- Bind events with `data-on-*` and call `Sprincul.setOption("processNativeEvents", false)` before registering models. Binding native `on*` attributes is deprecated, and this opts in to the future behavior now.
 - Pick one direction for updates and stay consistent. If bindings render the UI, let them own the DOM. If user input updates state, avoid mixing that with ad hoc DOM manipulation.
 
 ## License
