@@ -21,13 +21,6 @@ export type SprinculModelConstructor = (new (element: HTMLElement) => SprinculMo
 };
 export type SprinculModelRegistry = Map<string, SprinculModelConstructor>;
 
-export type DomListenerRecord = {
-	element: HTMLElement;
-	type: string;
-	listener: EventListener;
-	options?: boolean | AddEventListenerOptions;
-};
-
 export interface SprinculModelInfo {
 	name: string;
 	element: HTMLElement;

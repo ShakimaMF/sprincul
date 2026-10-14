@@ -3,7 +3,7 @@ import { expect, test, describe, spyOn } from "bun:test";
 import { html, waitForDomUpdate } from "../helpers.ts";
 
 describe("Sprincul - Wiring Dynamic Content", () => {
-	test("wire() binds data-bind-*/data-on-* attributes on new content added inside a live model's subtree", async () => {
+	test("wire() binds data-bind-* on new content inside a live model, and its data-on-* reaches the model", async () => {
 		class ListModel extends SprinculModel {
 			beforeInit() {
 				this.state.lastclicked = "";
@@ -18,8 +18,8 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 				this.wire(li);
 			}
 
-			handleClick(e: Event) {
-				this.state.lastclicked = (e.currentTarget as HTMLElement).dataset.label;
+			handleClick(_e: Event, el: HTMLElement) {
+				this.state.lastclicked = el.dataset.label;
 			}
 
 			showClicked(el: HTMLElement) {
@@ -207,7 +207,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		expect(instance.renderCount).toBe(1);
 	});
 
-	test("unwire() detaches data-on-* listeners so removed content stops receiving events and doesn't leak", async () => {
+	test("removed content stops reaching the model without unwire(), since its events are handled by the root", async () => {
 		class ListModel extends SprinculModel {
 			beforeInit() {
 				this.state.count = 0;
@@ -227,9 +227,6 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		const li = document.createElement("li");
 		li.setAttribute("data-on-click", "bump");
 		list.appendChild(li);
-		instance.wire(li);
-
-		instance.unwire(li);
 		li.remove();
 
 		li.click();
@@ -511,7 +508,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 			return li;
 		}
 
-		test("a wired fragment gets its listeners now and its callbacks in the next frame", async () => {
+		test("a wired fragment handles events once appended and runs its callbacks in the next frame", async () => {
 			const { instance, list, calls } = mountList();
 			const fragment = document.createDocumentFragment();
 			fragment.append(row("a"), row("b"));

@@ -1,6 +1,6 @@
 import { computed, type ReadableAtom, type MapStore } from "nanostores";
 import type SprinculModel from "./SprinculModel";
-import type { BoundDefaults, DomListenerRecord } from "./types";
+import type { BoundDefaults } from "./types";
 
 /**
  * `deferCallbacks` holds initial callbacks until beforeInit finishes; `deferToFrame` runs them in the next
@@ -10,7 +10,6 @@ type ProcessOptions = { defaults?: BoundDefaults; deferCallbacks: boolean; defer
 
 /** `viaWire` marks bindings registered by wire() rather than the initial scan, so unwire() releases only what wiring added. */
 type BindingRecord = { prop: string; element: HTMLElement; callback: string; viaWire: boolean };
-type PendingListener = { element: HTMLElement; attributeName: string; eventName: string; methodName: string };
 
 /**
  * @class SprinculCore
@@ -21,16 +20,24 @@ export class SprinculCore {
 	/** element -> its own binding records, so dedupe and subtree release don't scan every binding */
 	#bindingsByElement = new Map<HTMLElement, Set<BindingRecord>>();
 	#computed = new Map<string, ReadableAtom>();
-	#domListeners = new Set<DomListenerRecord>();
-	/** element -> "event:method" keys already attached, so a data-on-* re-read by wire() isn't bound twice */
-	#listenerKeys = new WeakMap<HTMLElement, Set<string>>();
+	/** Event types used by data-on-*, each handled by listeners on the model's root */
+	#eventTypes = new Set<string>();
+	/** Set once beforeInit finishes, so an event can't reach a model method before its state is seeded */
+	#listening = false;
+	/*
+	 * Bubbling events are handled as they bubble through the root. Non-bubbling ones (focus, mouseenter, a
+	 * CustomEvent without `bubbles`) never reach it that way, so they're caught on the way down instead.
+	 */
+	readonly #onBubble = (event: Event) => event.bubbles && this.#dispatch(event);
+	readonly #onCapture = (event: Event) => !event.bubbles && this.#dispatch(event);
+	/** Missing handler methods already warned about, so a missing one warns once rather than per event */
+	#warnedHandlers = new Set<string>();
 	#unsubscribers = new Set<() => void>();
 	#pendingUpdates = new Set<string>();
 	#updateScheduled: boolean = false;
 	#pendingInitialCallbacks: Array<BindingRecord> = [];
 	/** Initial callbacks for wired content that wasn't in the model yet, run in the next frame's update pass */
 	#frameCallbacks: Array<BindingRecord> = [];
-	#pendingListeners: Array<PendingListener> = [];
 	readonly #isBrowser: boolean;
 
 	constructor(
@@ -185,22 +192,14 @@ export class SprinculCore {
 			if (elementBindings.size === 0) this.#bindingsByElement.delete(node);
 		});
 
-		this.#domListeners.forEach((record) => {
-			if (!isInScope(record.element)) return;
-			record.element.removeEventListener(record.type, record.listener, record.options);
-			this.#domListeners.delete(record);
-			this.#listenerKeys.delete(record.element);
-		});
-
 		this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter((binding) => !isInScope(binding.element));
-		this.#pendingListeners = this.#pendingListeners.filter((listener) => !isInScope(listener.element));
 		this.#frameCallbacks = this.#frameCallbacks.filter((binding) => !isInScope(binding.element));
 	}
 
 	/**
-	 * Fires the initial data-bind-* callbacks and attaches the queued data-on-* listeners from
-	 * setupBindings(). Call once beforeInit has genuinely finished, so a user interaction
-	 * can't reach a model method before its state is seeded.
+	 * Fires the initial data-bind-* callbacks from setupBindings() and starts handling data-on-* events.
+	 * Call once beforeInit has genuinely finished, so a user interaction can't reach a model method
+	 * before its state is seeded.
 	 */
 	runQueuedInitialCallbacks() {
 		const queuedCallbacks = this.#pendingInitialCallbacks;
@@ -212,11 +211,8 @@ export class SprinculCore {
 
 		queuedCallbacks.forEach((binding) => this.#updateElement(binding));
 
-		const queuedListeners = this.#pendingListeners;
-		this.#pendingListeners = [];
-		queuedListeners.forEach(({ element, attributeName, eventName, methodName }) =>
-			this.#attachListener(element, attributeName, eventName, methodName),
-		);
+		this.#listening = true;
+		this.#eventTypes.forEach((type) => this.#listen(type));
 	}
 
 	#processTree(container: HTMLElement | DocumentFragment, options: ProcessOptions) {
@@ -233,7 +229,21 @@ export class SprinculCore {
 		}
 
 		container.querySelectorAll("*").forEach((el) => {
-			if (isOwned(el)) this.#processElementBindings(el as HTMLElement, options);
+			if (!isOwned(el)) return;
+			this.#processElementBindings(el as HTMLElement, options);
+			// Content rendered from a template later is handled by the root, so learn its event types now
+			if (el.localName === "template") this.#addTemplateEventTypes((el as HTMLTemplateElement).content);
+		});
+	}
+
+	#addTemplateEventTypes(content: DocumentFragment) {
+		content.querySelectorAll("*").forEach((el) => {
+			Array.from(el.attributes).forEach((attr) => {
+				if (attr.name.startsWith("data-on-") && attr.name.length > "data-on-".length) {
+					this.#addEventType(attr.name.substring("data-on-".length));
+				}
+			});
+			if (el.localName === "template") this.#addTemplateEventTypes((el as HTMLTemplateElement).content);
 		});
 	}
 
@@ -315,12 +325,16 @@ export class SprinculCore {
 		this.#unsubscribers.forEach((unsubscribe) => unsubscribe());
 		this.#unsubscribers.clear();
 
-		// Clean up DOM event listeners registered from data-on-* attributes
-		this.#domListeners.forEach(({ element, type, listener, options }) => {
-			element.removeEventListener(type, listener, options);
-		});
-		this.#domListeners.clear();
-		this.#listenerKeys = new WeakMap();
+		// Remove the root's data-on-* listeners, and keep a later #addEventType() from adding any
+		if (this.#listening) {
+			const root = this.instance.$el;
+			this.#eventTypes.forEach((type) => {
+				root.removeEventListener(type, this.#onBubble);
+				root.removeEventListener(type, this.#onCapture, true);
+			});
+		}
+		this.#listening = false;
+		this.#eventTypes.clear();
 		this.#bindings.clear();
 		this.#bindingsByElement.clear();
 		this.#computed.clear();
@@ -328,7 +342,6 @@ export class SprinculCore {
 
 		// Drop anything setupBindings() queued, in case destroy() ran while beforeInit was pending
 		this.#pendingInitialCallbacks = [];
-		this.#pendingListeners = [];
 		this.#frameCallbacks = [];
 	}
 
@@ -404,55 +417,66 @@ export class SprinculCore {
 				return;
 			}
 
-			// Handle data-on-* event attributes (data-on-click, etc.). Kept in the DOM so remounting can bind them again.
+			// data-on-* (data-on-click, etc.) is read when the event fires; the scan only learns its event type
 			if (attr.name.startsWith("data-on-") && attr.name.length > "data-on-".length) {
-				this.#queueListener(element, attr.name, attr.name.substring("data-on-".length), attr.value, options);
+				this.#addEventType(attr.name.substring("data-on-".length));
+				if (typeof Reflect.get(this.instance, attr.value) !== "function")
+					this.#warnMissingHandler(attr.name, attr.value);
 			}
 		});
 	}
 
-	#queueListener(
-		element: HTMLElement,
-		attributeName: string,
-		eventName: string,
-		methodName: string,
-		options: ProcessOptions,
-	) {
-		if (options.deferCallbacks) {
-			// Queue until beforeInit finishes, so it can't fire against unseeded state
-			this.#pendingListeners.push({ element, attributeName, eventName, methodName });
-			return;
-		}
-
-		this.#attachListener(element, attributeName, eventName, methodName);
+	#addEventType(type: string) {
+		if (this.#eventTypes.has(type)) return;
+		this.#eventTypes.add(type);
+		if (this.#listening) this.#listen(type);
 	}
 
-	#attachListener(element: HTMLElement, attributeName: string, eventName: string, methodName: string) {
-		const eventFn = Reflect.get(this.instance, methodName);
-		if (typeof eventFn !== "function") {
-			this.#warn(`Event handler method "${methodName}" not found for ${attributeName}.`);
+	#listen(type: string) {
+		this.instance.$el.addEventListener(type, this.#onBubble);
+		this.instance.$el.addEventListener(type, this.#onCapture, true);
+	}
+
+	/**
+	 * Calls the data-on-<type> handler of each element from the target up to the root, deepest first, like
+	 * native bubbling. Elements inside a nested model are its to handle, so they're skipped, but the walk
+	 * carries on above it.
+	 */
+	#dispatch(event: Event) {
+		const root = this.instance.$el;
+		const attribute = `data-on-${event.type}`;
+
+		const target = event.target as Node | null;
+		for (let el = target?.nodeType === 1 ? (target as Element) : null; el; el = el.parentElement) {
+			if (el.hasAttribute(attribute) && el.closest("[data-model]") === root) {
+				this.#callHandler(el as HTMLElement, attribute, event);
+				if (event.cancelBubble) return;
+			}
+			// A non-bubbling event only reaches its own target's handler
+			if (el === root || !event.bubbles) return;
+		}
+	}
+
+	#callHandler(element: HTMLElement, attribute: string, event: Event) {
+		const methodName = element.getAttribute(attribute)!;
+		const handler = Reflect.get(this.instance, methodName);
+		if (typeof handler !== "function") {
+			this.#warnMissingHandler(attribute, methodName);
 			return;
 		}
 
-		const key = `${eventName}:${methodName}`;
-		let keys = this.#listenerKeys.get(element);
-		if (!keys) {
-			keys = new Set();
-			this.#listenerKeys.set(element, keys);
+		try {
+			handler.call(this.instance, event, element);
+		} catch (error) {
+			console.error(`Error in event handler "${methodName}" for event "${event.type}":`, error);
 		}
-		if (keys.has(key)) return;
-		keys.add(key);
+	}
 
-		const listener: EventListener = (e: Event) => {
-			try {
-				eventFn.call(this.instance, e);
-			} catch (error) {
-				console.error(`Error in event handler "${methodName}" for event "${eventName}":`, error);
-			}
-		};
-
-		element.addEventListener(eventName, listener);
-		this.#domListeners.add({ element, type: eventName, listener });
+	#warnMissingHandler(attribute: string, methodName: string) {
+		const key = `${attribute}=${methodName}`;
+		if (this.#warnedHandlers.has(key)) return;
+		this.#warnedHandlers.add(key);
+		this.#warn(`Event handler method "${methodName}" not found for ${attribute}.`);
 	}
 
 	/** Returns true if this element/callback pair was already tracked. */
