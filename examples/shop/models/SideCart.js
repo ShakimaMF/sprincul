@@ -45,29 +45,20 @@ export default class SideCart extends SprinculModel {
 		Cart.close();
 	}
 
-	/**
-	 * @param {MouseEvent} e
-	 * @param {HTMLButtonElement} el
-	 */
-	increment(e, el) {
+	/** @param {HTMLButtonElement} el */
+	increment(el) {
 		const id = this.#lineId(el);
 		Cart.setQty(id, Cart.qtyOf(id) + 1);
 	}
 
-	/**
-	 * @param {MouseEvent} e
-	 * @param {HTMLButtonElement} el
-	 */
-	decrement(e, el) {
+	/** @param {HTMLButtonElement} el */
+	decrement(el) {
 		const id = this.#lineId(el);
 		Cart.setQty(id, Cart.qtyOf(id) - 1);
 	}
 
-	/**
-	 * @param {MouseEvent} e
-	 * @param {HTMLButtonElement} el
-	 */
-	remove(e, el) {
+	/** @param {HTMLButtonElement} el */
+	remove(el) {
 		Cart.remove(this.#lineId(el));
 	}
 
@@ -75,8 +66,11 @@ export default class SideCart extends SprinculModel {
 		this.state.codeOpen = !this.state.codeOpen;
 	}
 
-	/** @param {SubmitEvent} e */
-	applyCode(e) {
+	/**
+	 * @param {HTMLFormElement} el
+	 * @param {SubmitEvent} e
+	 */
+	applyCode(el, e) {
 		e.preventDefault();
 		const input = this.$ref("code");
 		const code = input.value.trim();

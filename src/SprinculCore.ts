@@ -466,7 +466,7 @@ export class SprinculCore {
 		}
 
 		try {
-			handler.call(this.instance, event, element);
+			handler.call(this.instance, element, event);
 		} catch (error) {
 			console.error(`Error in event handler "${methodName}" for event "${event.type}":`, error);
 		}

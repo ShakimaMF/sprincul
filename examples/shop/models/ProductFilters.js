@@ -10,8 +10,11 @@ export default class ProductFilters extends SprinculModel {
 		this.$emit("filter", { query: this.$ref("search").value.trim(), category: this.$ref("category").value });
 	}
 
-	/** @param {SubmitEvent} e */
-	preventSubmit(e) {
+	/**
+	 * @param {HTMLFormElement} el
+	 * @param {SubmitEvent} e
+	 */
+	preventSubmit(el, e) {
 		e.preventDefault();
 	}
 }

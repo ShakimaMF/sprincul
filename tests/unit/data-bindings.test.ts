@@ -214,7 +214,7 @@ describe("Sprincul - Data Bindings", () => {
 			let received = null as string | null;
 
 			class CustomEventModel extends SprinculModel {
-				handleAdded(e: Event) {
+				handleAdded(_el: HTMLElement, e: Event) {
 					received = e.type;
 				}
 			}

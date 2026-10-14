@@ -18,7 +18,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 				this.wire(li);
 			}
 
-			handleClick(_e: Event, el: HTMLElement) {
+			handleClick(el: HTMLElement) {
 				this.state.lastclicked = el.dataset.label;
 			}
 

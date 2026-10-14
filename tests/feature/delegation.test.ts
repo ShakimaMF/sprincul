@@ -80,12 +80,12 @@ describe("Sprincul - Delegated events", () => {
 		expect(calls).toEqual(["expand"]);
 	});
 
-	test("handlers get the element with the attribute, even when the click lands on a child", () => {
+	test("handlers get the element with the attribute first, then the event, even when the click lands on a child", () => {
 		let received: { el?: Element; currentTarget?: EventTarget | null } = {};
 		const { root } = mountWith(
 			html`<button data-on-click="pick" data-id="7"><span>Pick</span></button>`,
 			class extends SprinculModel {
-				pick(e: Event, el: HTMLElement) {
+				pick(el: HTMLElement, e: Event) {
 					received = { el, currentTarget: e.currentTarget };
 				}
 			},
@@ -147,7 +147,7 @@ describe("Sprincul - Delegated events", () => {
 				outer() {
 					calls.push("outer");
 				}
-				inner(e: Event) {
+				inner(_el: HTMLElement, e: Event) {
 					calls.push("inner");
 					e.stopPropagation();
 				}
@@ -172,7 +172,7 @@ describe("Sprincul - Delegated events", () => {
 				}
 			}
 			class Cart extends SprinculModel {
-				save(e: Event) {
+				save(_el: HTMLElement, e: Event) {
 					calls.push("cart:save");
 					if (stopInChild) e.stopPropagation();
 				}
@@ -232,7 +232,7 @@ describe("Sprincul - Delegated events", () => {
 		Sprincul.mount(
 			root,
 			class extends SprinculModel {
-				ping(e: Event) {
+				ping(_el: HTMLElement, e: Event) {
 					calls.push(e.bubbles ? "bubbles" : "flat");
 				}
 			},
