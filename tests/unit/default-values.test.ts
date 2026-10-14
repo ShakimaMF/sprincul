@@ -70,6 +70,32 @@ describe("Sprincul - Server-rendered defaults", () => {
 		expect(receivedDefaults["button-text"]).toBeUndefined();
 	});
 
+	test("defaults answer in any case, since HTML lowercases data-bind-buttonText", () => {
+		container.innerHTML = html`
+			<div data-model="TestModel">
+				<span data-bind-buttonText="noop">Save</span>
+			</div>
+		`;
+
+		let receivedDefaults: any;
+
+		class TestModel extends SprinculModel {
+			beforeInit(defaults: any) {
+				receivedDefaults = defaults;
+			}
+
+			noop() {}
+		}
+
+		Sprincul.register("TestModel", TestModel);
+		Sprincul.init();
+
+		expect(receivedDefaults.buttonText.text).toBe("Save");
+		expect("buttonText" in receivedDefaults).toBe(true);
+		expect(Object.hasOwn(receivedDefaults, "buttonText")).toBe(true);
+		expect(Object.keys(receivedDefaults)).toEqual(["buttontext"]);
+	});
+
 	test("first element bound to a property wins when duplicated", () => {
 		container.innerHTML = html`
 			<div data-model="TestModel">

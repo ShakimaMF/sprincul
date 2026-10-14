@@ -121,7 +121,23 @@ export class SprinculCore {
 		// Defer callbacks so any seeded state in beforeInit is available to them
 		this.#processTree(container, { defaults, deferCallbacks: true });
 
-		return defaults;
+		return SprinculCore.#matchAnyCase(defaults);
+	}
+
+	/** Lets `defaults.buttonText` find what `data-bind-buttonText` captured, which HTML stored as `buttontext`. */
+	static #matchAnyCase(defaults: BoundDefaults): BoundDefaults {
+		const resolve = (prop: PropertyKey): PropertyKey => {
+			if (typeof prop !== "string" || Object.hasOwn(defaults, prop)) return prop;
+
+			const folded = prop.toLowerCase();
+			return Object.keys(defaults).find((name) => name.toLowerCase() === folded) ?? prop;
+		};
+
+		return new Proxy(defaults, {
+			get: (target, prop) => Reflect.get(target, resolve(prop)),
+			has: (target, prop) => Reflect.has(target, resolve(prop)),
+			getOwnPropertyDescriptor: (target, prop) => Reflect.getOwnPropertyDescriptor(target, resolve(prop)),
+		});
 	}
 
 	processAddedElement(content: HTMLElement | DocumentFragment) {
@@ -271,7 +287,8 @@ export class SprinculCore {
 	scheduleUpdate(key: string) {
 		if (!this.#isBrowser) return;
 
-		this.#pendingUpdates.add(key);
+		// Bindings are keyed in lowercase, since HTML lowercases the attribute names they come from
+		this.#pendingUpdates.add(key.toLowerCase());
 		this.#scheduleFrame();
 	}
 
@@ -335,9 +352,11 @@ export class SprinculCore {
 				const propertyName = attr.name
 					.substring("data-bind-".length)
 					.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+				// HTML lowercased the attribute, so it's matched to state keys in any case (buttontext -> buttonText)
+				const key = propertyName.toLowerCase();
 				const callbackName = attr.value; // The callback to call when it changes
 
-				const alreadyBound = this.#trackBinding(propertyName, element, callbackName, options.viaWire === true);
+				const alreadyBound = this.#trackBinding(key, element, callbackName, options.viaWire === true);
 
 				// Re-invoking the callback here lets a callback that re-wires its own container recurse forever
 				if (alreadyBound) return;
@@ -369,7 +388,7 @@ export class SprinculCore {
 				}
 
 				const record = {
-					prop: propertyName,
+					prop: key,
 					element,
 					callback: callbackName,
 					viaWire: options.viaWire === true,

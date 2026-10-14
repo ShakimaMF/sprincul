@@ -270,6 +270,11 @@ export default class SprinculModel {
 				`$emit("${type}") uses a native event name, so it mixes with the native events bubbling through the same elements.`,
 			);
 		}
+		if (/[A-Z]/.test(type)) {
+			(this.#core || getCore(this))?.warn(
+				`$emit("${type}") can't be heard by data-on-* because HTML lowercases attribute names; use a lowercase name such as "${type.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}".`,
+			);
+		}
 
 		const event = new CustomEvent<D>(type, { bubbles: true, ...options, detail });
 		this.$el.dispatchEvent(event);

@@ -95,6 +95,52 @@ describe("Sprincul - Data Bindings", () => {
 
 			expect(label.textContent).toBe("Saved");
 		});
+
+		test("matches state keys in any case, since HTML lowercases data-bind-buttonText", async () => {
+			container.innerHTML = html`
+				<div data-model="TestModel">
+					<button data-on-click="rename">Rename</button>
+					<span data-bind-buttonText="showLabel"></span>
+					<span data-bind-buttontext="showLabel"></span>
+					<span data-bind-itemCount="showCount"></span>
+				</div>
+			`;
+
+			class TestModel extends SprinculModel {
+				beforeInit() {
+					this.state.buttonText = "Save";
+					this.state.items = ["a"];
+					this.addComputedProp("itemCount", () => this.state.items.length, ["items"]);
+				}
+
+				rename() {
+					this.state.buttonText = "Saved";
+					this.state.items = ["a", "b"];
+				}
+
+				showLabel(el: HTMLElement) {
+					el.textContent = this.state.buttonText;
+				}
+
+				showCount(el: HTMLElement) {
+					el.textContent = String(this.state.itemCount);
+				}
+			}
+
+			Sprincul.register("TestModel", TestModel);
+			Sprincul.init();
+
+			const [camel, lower, count] = Array.from(container.querySelectorAll("span"));
+			expect(camel.textContent).toBe("Save");
+			expect(count.textContent).toBe("1");
+
+			(container.querySelector("button") as HTMLButtonElement).click();
+			await waitForDomUpdate();
+
+			expect(camel.textContent).toBe("Saved");
+			expect(lower.textContent).toBe("Saved");
+			expect(count.textContent).toBe("2");
+		});
 	});
 
 	describe("Event handlers", () => {
