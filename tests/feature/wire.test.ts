@@ -280,12 +280,14 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 	});
 
 	test("unwire() also releases descendants of the released element, not just the element itself", async () => {
+		const renders: string[] = [];
+
 		class ListModel extends SprinculModel {
 			beforeInit() {
 				this.state.count = 0;
 			}
-			bump() {
-				this.state.count++;
+			showCount() {
+				renders.push("child");
 			}
 		}
 
@@ -295,19 +297,18 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		const instance = Sprincul.mount(el, ListModel) as InstanceType<typeof ListModel>;
 
 		const wrapper = document.createElement("div");
-		const child = document.createElement("button");
-		child.setAttribute("data-on-click", "bump");
+		const child = document.createElement("span");
+		child.setAttribute("data-bind-count", "showCount");
 		wrapper.appendChild(child);
 		el.appendChild(wrapper);
 		instance.wire(wrapper);
 
 		instance.unwire(wrapper);
-		wrapper.remove();
-
-		child.click();
+		renders.length = 0;
+		instance.state.count = 1;
 		await waitForDomUpdate();
 
-		expect(instance.state.count).toBe(0);
+		expect(renders).toEqual([]);
 	});
 
 	test("a bound container can unwire and re-wire itself from inside its own callback", async () => {
@@ -607,6 +608,138 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 			"[Sprincul] wire() was given content on the page outside this model, so nothing was bound.",
 		);
 		warnSpy.mockRestore();
+	});
+
+	describe("rewire()", () => {
+		function mountRows() {
+			const renders: string[] = [];
+
+			class RowsModel extends SprinculModel {
+				beforeInit() {
+					this.state.qty = 1;
+				}
+				showQty(el: HTMLElement) {
+					renders.push(el.dataset.label!);
+					el.textContent = String(this.state.qty);
+				}
+			}
+
+			const el = document.createElement("div");
+			el.innerHTML = html`<span id="total" data-bind-qty="showQty" data-label="total"></span>
+				<ul></ul>`;
+			container.appendChild(el);
+			const instance = Sprincul.mount(el, RowsModel) as InstanceType<typeof RowsModel>;
+			return { instance, list: el.querySelector("ul")!, renders };
+		}
+
+		function rows(...labels: string[]) {
+			return labels.map((label) => {
+				const li = document.createElement("li");
+				li.dataset.label = label;
+				li.setAttribute("data-bind-qty", "showQty");
+				return li;
+			});
+		}
+
+		test("after rebuilding wired content, it releases the old rows and binds the new ones", async () => {
+			const { instance, list, renders } = mountRows();
+			list.replaceChildren(...rows("a", "b"));
+			instance.wire(list);
+
+			const [oldA] = Array.from(list.children) as HTMLElement[];
+			list.replaceChildren(...rows("c"));
+			instance.rewire(list);
+			renders.length = 0;
+
+			instance.state.qty = 2;
+			await waitForDomUpdate();
+
+			expect(renders.sort()).toEqual(["c", "total"]);
+			expect(oldA!.textContent).toBe("1");
+		});
+
+		test("releases rows that were wired through a fragment and have since been rebuilt away", async () => {
+			const { instance, list, renders } = mountRows();
+			const fragment = document.createDocumentFragment();
+			fragment.append(...rows("a"));
+			instance.wire(fragment);
+			list.append(fragment);
+			await waitForDomUpdate();
+
+			list.replaceChildren(...rows("b"));
+			instance.rewire(list);
+			renders.length = 0;
+
+			instance.state.qty = 2;
+			await waitForDomUpdate();
+
+			expect(renders.sort()).toEqual(["b", "total"]);
+		});
+
+		test("keeps content wired from a fragment that hasn't been appended yet", async () => {
+			const { instance, list, renders } = mountRows();
+			const fragment = document.createDocumentFragment();
+			fragment.append(...rows("a"));
+			instance.wire(fragment);
+
+			instance.rewire(list);
+			list.append(fragment);
+			await waitForDomUpdate();
+			renders.length = 0;
+
+			instance.state.qty = 2;
+			await waitForDomUpdate();
+
+			expect(renders.sort()).toEqual(["a", "total"]);
+		});
+
+		test("leaves the model's own markup bound", async () => {
+			const { instance, renders } = mountRows();
+			instance.rewire(instance.$el);
+			renders.length = 0;
+
+			instance.state.qty = 2;
+			await waitForDomUpdate();
+
+			expect(renders).toEqual(["total"]);
+		});
+
+		test("throws if called before the model's core is available", () => {
+			const el = document.createElement("div");
+			const model = new SprinculModel(el);
+
+			expect(() => model.rewire(el)).toThrow("[Sprincul] rewire() called before core was available");
+		});
+	});
+
+	test("unwire() releases wired content even after it was removed from the element", async () => {
+		const renders: string[] = [];
+
+		class RowsModel extends SprinculModel {
+			beforeInit() {
+				this.state.qty = 1;
+			}
+			showQty(el: HTMLElement) {
+				renders.push(el.textContent!);
+			}
+		}
+
+		const el = document.createElement("div");
+		el.innerHTML = html`<ul></ul>`;
+		container.appendChild(el);
+		const instance = Sprincul.mount(el, RowsModel) as InstanceType<typeof RowsModel>;
+		const list = el.querySelector("ul")!;
+		list.innerHTML = html`<li data-bind-qty="showQty">row</li>`;
+		instance.wire(list);
+
+		list.replaceChildren();
+		instance.unwire(list);
+		renders.length = 0;
+
+		instance.state.qty = 2;
+		await waitForDomUpdate();
+
+		expect(renders).toEqual([]);
 	});
 
 	test("init({ root }) mounts the models in a fragment before it's appended", () => {

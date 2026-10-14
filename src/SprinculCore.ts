@@ -6,10 +6,25 @@ import type { BoundDefaults } from "./types";
  * `deferCallbacks` holds initial callbacks until beforeInit finishes; `deferToFrame` runs them in the next
  * frame's update pass instead, for wired content that isn't in the model yet.
  */
-type ProcessOptions = { defaults?: BoundDefaults; deferCallbacks: boolean; deferToFrame?: boolean; viaWire?: boolean };
+type ProcessOptions = {
+	defaults?: BoundDefaults;
+	deferCallbacks: boolean;
+	deferToFrame?: boolean;
+	wiredBy?: HTMLElement | DocumentFragment;
+	wiredOutside?: boolean;
+};
 
-/** `viaWire` marks bindings registered by wire() rather than the initial scan, so unwire() releases only what wiring added. */
-type BindingRecord = { prop: string; element: HTMLElement; callback: string; viaWire: boolean };
+/**
+ * `wiredBy` is the content wire() was given, unset for the initial scan, so unwire() releases only what wiring added.
+ * `wiredOutside` marks content wired before it was appended, which is released once it leaves the model again.
+ */
+type BindingRecord = {
+	prop: string;
+	element: HTMLElement;
+	callback: string;
+	wiredBy?: HTMLElement | DocumentFragment;
+	wiredOutside?: boolean;
+};
 
 /**
  * @class SprinculCore
@@ -19,6 +34,8 @@ export class SprinculCore {
 	#bindings = new Map<string, Set<BindingRecord>>();
 	/** element -> its own binding records, so dedupe and subtree release don't scan every binding */
 	#bindingsByElement = new Map<HTMLElement, Set<BindingRecord>>();
+	/** content passed to wire() -> the bindings it registered, so they're released even after being removed from it */
+	#bindingsByWire = new Map<HTMLElement | DocumentFragment, Set<BindingRecord>>();
 	#computed = new Map<string, ReadableAtom>();
 	/** Event types used by data-on-*, each handled by listeners on the model's root */
 	#eventTypes = new Set<string>();
@@ -146,7 +163,7 @@ export class SprinculCore {
 
 	processAddedElement(content: HTMLElement | DocumentFragment) {
 		if (this.instance.$el.contains(content)) {
-			this.#processTree(content, { deferCallbacks: false, viaWire: true });
+			this.#processTree(content, { deferCallbacks: false, wiredBy: content });
 			return;
 		}
 
@@ -160,40 +177,58 @@ export class SprinculCore {
 		 * Not appended yet (a fragment or detached element): bind it to this model now and render it in the
 		 * next frame, by which time it's usually been appended. Without a browser frame, render it now.
 		 */
-		this.#processTree(content, { deferCallbacks: false, deferToFrame: this.#isBrowser, viaWire: true });
+		this.#processTree(content, {
+			deferCallbacks: false,
+			deferToFrame: this.#isBrowser,
+			wiredBy: content,
+			wiredOutside: true,
+		});
 	}
 
 	/**
-	 * Reverses wire() for `element` and its descendants. Call before discarding a wired subtree.
+	 * Reverses wire() for `element`: what wiring `element` registered, even if since removed from it, and what was
+	 * wired anywhere inside it. Content wired before it was appended has no such element to find it by, so it's
+	 * released once it has left the model. Bindings from the model's own markup stay, so a callback can unwire the
+	 * container it was handed.
 	 */
 	unwireElement(element: HTMLElement) {
-		// contains() is true for the node itself, so this covers the element and its descendants
-		const isInScope = (candidate: HTMLElement) => element.contains(candidate);
-
-		// Walk the tracked elements rather than the DOM, so descendants already detached from
-		// this subtree are still released
-		Array.from(this.#bindingsByElement.keys()).forEach((node) => {
-			if (!isInScope(node)) return;
-
-			const elementBindings = this.#bindingsByElement.get(node)!;
-			elementBindings.forEach((record) => {
-				// Bindings from the initial scan belong to the model's own markup: releasing them
-				// would silently stop a callback that unwires the container it was handed
-				if (!record.viaWire) return;
-
-				const bindings = this.#bindings.get(record.prop);
-				if (bindings) {
-					bindings.delete(record);
-					if (bindings.size === 0) this.#bindings.delete(record.prop);
-				}
-				elementBindings.delete(record);
+		const root = this.instance.$el;
+		const pending = new Set(this.#frameCallbacks);
+		const released = new Set(this.#bindingsByWire.get(element));
+		this.#bindingsByElement.forEach((records, node) => {
+			const inside = element.contains(node);
+			const leftModel = !root.contains(node);
+			records.forEach((record) => {
+				if (!record.wiredBy) return;
+				if (inside || (leftModel && record.wiredOutside && !pending.has(record))) released.add(record);
 			});
-
-			if (elementBindings.size === 0) this.#bindingsByElement.delete(node);
 		});
+		if (released.size === 0) return;
 
-		this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter((binding) => !isInScope(binding.element));
-		this.#frameCallbacks = this.#frameCallbacks.filter((binding) => !isInScope(binding.element));
+		released.forEach((record) => this.#release(record));
+		this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter((record) => !released.has(record));
+		this.#frameCallbacks = this.#frameCallbacks.filter((record) => !released.has(record));
+	}
+
+	/** Releases `element`'s wired bindings, then wires what it holds now. */
+	rewireElement(element: HTMLElement) {
+		this.unwireElement(element);
+		this.processAddedElement(element);
+	}
+
+	#release(record: BindingRecord) {
+		const bindings = this.#bindings.get(record.prop);
+		bindings?.delete(record);
+		if (bindings?.size === 0) this.#bindings.delete(record.prop);
+
+		const elementBindings = this.#bindingsByElement.get(record.element);
+		elementBindings?.delete(record);
+		if (elementBindings?.size === 0) this.#bindingsByElement.delete(record.element);
+
+		if (!record.wiredBy) return;
+		const wired = this.#bindingsByWire.get(record.wiredBy);
+		wired?.delete(record);
+		if (wired?.size === 0) this.#bindingsByWire.delete(record.wiredBy);
 	}
 
 	/**
@@ -337,6 +372,7 @@ export class SprinculCore {
 		this.#eventTypes.clear();
 		this.#bindings.clear();
 		this.#bindingsByElement.clear();
+		this.#bindingsByWire.clear();
 		this.#computed.clear();
 		this.#pendingUpdates.clear();
 
@@ -366,10 +402,10 @@ export class SprinculCore {
 				const key = propertyName.toLowerCase();
 				const callbackName = attr.value; // The callback to call when it changes
 
-				const alreadyBound = this.#trackBinding(key, element, callbackName, options.viaWire === true);
+				const record = this.#trackBinding(key, element, callbackName, options);
 
 				// Re-invoking the callback here lets a callback that re-wires its own container recurse forever
-				if (alreadyBound) return;
+				if (!record) return;
 
 				// Capture server-rendered content before any callback touches it (first element wins)
 				if (options.defaults && !Object.prototype.hasOwnProperty.call(options.defaults, propertyName)) {
@@ -397,7 +433,6 @@ export class SprinculCore {
 					return;
 				}
 
-				const record = { prop: key, element, callback: callbackName, viaWire: options.viaWire === true };
 				if (options.deferCallbacks) {
 					this.#pendingInitialCallbacks.push(record);
 					return;
@@ -479,8 +514,13 @@ export class SprinculCore {
 		this.#warn(`Event handler method "${methodName}" not found for ${attribute}.`);
 	}
 
-	/** Returns true if this element/callback pair was already tracked. */
-	#trackBinding(prop: string, element: HTMLElement, callback: string, viaWire: boolean): boolean {
+	/** Returns the new record, or null if this element/callback pair was already tracked. */
+	#trackBinding(
+		prop: string,
+		element: HTMLElement,
+		callback: string,
+		{ wiredBy, wiredOutside }: ProcessOptions,
+	): BindingRecord | null {
 		let elementBindings = this.#bindingsByElement.get(element);
 		if (!elementBindings) {
 			elementBindings = new Set();
@@ -488,18 +528,27 @@ export class SprinculCore {
 		}
 
 		for (const existing of elementBindings) {
-			if (existing.prop === prop && existing.callback === callback) return true;
+			if (existing.prop === prop && existing.callback === callback) return null;
 		}
 
 		if (!this.#bindings.has(prop)) {
 			this.#bindings.set(prop, new Set());
 		}
 
-		const record = { prop, element, callback, viaWire };
+		const record: BindingRecord = { prop, element, callback, wiredBy, wiredOutside };
 		this.#bindings.get(prop)!.add(record);
 		elementBindings.add(record);
 
-		return false;
+		if (wiredBy) {
+			let wired = this.#bindingsByWire.get(wiredBy);
+			if (!wired) {
+				wired = new Set();
+				this.#bindingsByWire.set(wiredBy, wired);
+			}
+			wired.add(record);
+		}
+
+		return record;
 	}
 
 	#updateDependentElements(prop: string, updated?: Map<HTMLElement, Set<string>>) {

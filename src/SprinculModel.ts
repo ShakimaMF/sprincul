@@ -73,36 +73,48 @@ export default class SprinculModel {
 	 * @throws {Error} If the method is called before the core is available.
 	 */
 	wire(element: HTMLElement | DocumentFragment): void {
-		const core = this.#core || getCore(this);
-		if (!core) {
-			throw new Error(
-				`[Sprincul] wire() called before core was available. Call it from beforeInit() or later instead.`,
-			);
-		}
-
-		core.processAddedElement(element);
+		this.#requireCore("wire").processAddedElement(element);
 	}
 
 	/**
-	 * Release the data-bind-* bindings wire() registered within an element and its descendants.
-	 * Call this before discarding bound content a model rebuilds on every render.
+	 * Release what wire() registered for an element, then wire what it holds now. Call it after rebuilding
+	 * content you wired, on the same element you passed to wire().
+	 *
+	 * @example
+	 * list.replaceChildren(...rows);
+	 * this.rewire(list);
+	 *
+	 * @param {HTMLElement} element - The element you wired before and have since rebuilt.
+	 * @return {void} Does not return a value.
+	 * @throws {Error} If the method is called before the core is available.
+	 */
+	rewire(element: HTMLElement): void {
+		this.#requireCore("rewire").rewireElement(element);
+	}
+
+	/**
+	 * Release what wire() registered for an element, including content since removed from it, and anything wired
+	 * inside it. Call this when you're done with wired content.
 	 *
 	 * Bindings from the model's own server-rendered markup are left alone, so a binding callback
 	 * can safely unwire the container it was handed.
 	 *
-	 * @param {HTMLElement} element - The element whose wired content to release. Call this before detaching it.
+	 * @param {HTMLElement} element - The element whose wired content to release.
 	 * @return {void} Does not return a value.
 	 * @throws {Error} If the method is called before the core is available.
 	 */
 	unwire(element: HTMLElement): void {
+		this.#requireCore("unwire").unwireElement(element);
+	}
+
+	#requireCore(method: string): SprinculCore {
 		const core = this.#core || getCore(this);
 		if (!core) {
 			throw new Error(
-				`[Sprincul] unwire() called before core was available. Call it from beforeInit() or later instead.`,
+				`[Sprincul] ${method}() called before core was available. Call it from beforeInit() or later instead.`,
 			);
 		}
-
-		core.unwireElement(element);
+		return core;
 	}
 
 	/**
