@@ -32,13 +32,10 @@ export class SprinculCore {
 	#frameCallbacks: Array<BindingRecord> = [];
 	#pendingListeners: Array<PendingListener> = [];
 	readonly #isBrowser: boolean;
-	/** The native on* deprecation warns once per page, not once per attribute. */
-	static #nativeEventsWarned = false;
 
 	constructor(
 		public instance: SprinculModel,
 		private devMode: boolean = false,
-		private processNativeEvents: boolean = true,
 	) {
 		this.#isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
 	}
@@ -201,7 +198,7 @@ export class SprinculCore {
 	}
 
 	/**
-	 * Fires the initial data-bind-* callbacks and attaches the queued data-on-* and on* listeners from
+	 * Fires the initial data-bind-* callbacks and attaches the queued data-on-* listeners from
 	 * setupBindings(). Call once beforeInit has genuinely finished, so a user interaction
 	 * can't reach a model method before its state is seeded.
 	 */
@@ -318,7 +315,7 @@ export class SprinculCore {
 		this.#unsubscribers.forEach((unsubscribe) => unsubscribe());
 		this.#unsubscribers.clear();
 
-		// Clean up DOM event listeners registered from data-on-*/on* attributes
+		// Clean up DOM event listeners registered from data-on-* attributes
 		this.#domListeners.forEach(({ element, type, listener, options }) => {
 			element.removeEventListener(type, listener, options);
 		});
@@ -335,7 +332,7 @@ export class SprinculCore {
 		this.#frameCallbacks = [];
 	}
 
-	// Process all data-bind-* attributes and data-on-*/on* event handlers for an element
+	// Process all data-bind-* attributes and data-on-* event handlers for an element
 	#processElementBindings(element: HTMLElement, options: ProcessOptions) {
 		Array.from(element.attributes).forEach((attr) => {
 			// Refs are looked up when read; the scan only flags names that could never match
@@ -387,12 +384,7 @@ export class SprinculCore {
 					return;
 				}
 
-				const record = {
-					prop: key,
-					element,
-					callback: callbackName,
-					viaWire: options.viaWire === true,
-				};
+				const record = { prop: key, element, callback: callbackName, viaWire: options.viaWire === true };
 				if (options.deferCallbacks) {
 					this.#pendingInitialCallbacks.push(record);
 					return;
@@ -412,38 +404,11 @@ export class SprinculCore {
 				return;
 			}
 
-			// Handle data-on-* event attributes (data-on-click, etc.), the CSP-safe form of on*
+			// Handle data-on-* event attributes (data-on-click, etc.). Kept in the DOM so remounting can bind them again.
 			if (attr.name.startsWith("data-on-") && attr.name.length > "data-on-".length) {
-				// Kept in the DOM (unlike on*): the browser never runs it, and remounting can bind it again
 				this.#queueListener(element, attr.name, attr.name.substring("data-on-".length), attr.value, options);
-				return;
-			}
-
-			// Handle on* event attributes (onclick, onkeydown, etc.). With processNativeEvents off they're plain DOM.
-			if (this.processNativeEvents && this.#isEventAttribute(element, attr.name)) {
-				const eventName = attr.name.substring(2); // Remove 'on' prefix
-				element.removeAttribute(attr.name);
-
-				// data-on-<event> was added deliberately, so it wins and the listener is only registered once
-				if (element.hasAttribute(`data-on-${eventName}`)) {
-					this.#warn(`Element has both ${attr.name} and data-on-${eventName}; using data-on-${eventName}.`);
-					return;
-				}
-
-				if (typeof Reflect.get(this.instance, attr.value) === "function") {
-					this.#warnNativeEvent(attr.name, eventName, attr.value);
-				}
-				this.#queueListener(element, attr.name, eventName, attr.value, options);
 			}
 		});
-	}
-
-	#warnNativeEvent(attributeName: string, eventName: string, methodName: string) {
-		if (SprinculCore.#nativeEventsWarned) return;
-		SprinculCore.#nativeEventsWarned = true;
-		console.warn(
-			`[Sprincul] Binding native event attributes such as ${attributeName}="${methodName}" is deprecated and will stop in a future release; use data-on-${eventName}="${methodName}" instead. To opt in early, call Sprincul.setOption("processNativeEvents", false).`,
-		);
 	}
 
 	#queueListener(
@@ -460,16 +425,6 @@ export class SprinculCore {
 		}
 
 		this.#attachListener(element, attributeName, eventName, methodName);
-	}
-
-	/**
-	 * Only treat `on*` as an event handler when the DOM exposes a matching handler property,
-	 * so ordinary attributes that happen to start with "on" (once, only, online) are left alone.
-	 */
-	#isEventAttribute(element: HTMLElement, attributeName: string): boolean {
-		if (!attributeName.startsWith("on") || attributeName.length <= 2) return false;
-
-		return attributeName in element || (this.#isBrowser && attributeName in window);
 	}
 
 	#attachListener(element: HTMLElement, attributeName: string, eventName: string, methodName: string) {
