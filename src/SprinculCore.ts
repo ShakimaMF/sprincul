@@ -481,25 +481,19 @@ export class SprinculCore {
 		const root = this.instance.$el;
 		const attribute = `data-on-${event.type}`;
 		const target = event.target as Node | null;
-		if (target?.nodeType !== 1) return;
-		const start = target as Element;
 
-		// A non-bubbling event only reaches its own target's handler
-		if (!event.bubbles) {
-			if (start.hasAttribute(attribute) && start.closest("[data-model]") === root) {
-				this.#callHandler(start as HTMLElement, attribute, event);
+		for (let el = target?.nodeType === 1 ? (target as Element) : null; el; el = el.parentElement) {
+			if (el.hasAttribute(attribute)) {
+				const owner = el.closest("[data-model]")!;
+				if (owner === root) {
+					this.#callHandler(el as HTMLElement, attribute, event);
+					return;
+				}
+				// A nested model's match is its own, so carry on above that model
+				el = owner;
 			}
-			return;
-		}
-
-		const selector = `[${root.ownerDocument.defaultView!.CSS.escape(attribute)}]`;
-		for (let el = start.closest(selector); el && root.contains(el);) {
-			const owner = el.closest("[data-model]")!;
-			if (owner === root) {
-				this.#callHandler(el as HTMLElement, attribute, event);
-				return;
-			}
-			el = owner.parentElement?.closest(selector) ?? null;
+			// A non-bubbling event only reaches its own target's handler
+			if (el === root || !event.bubbles) return;
 		}
 	}
 
