@@ -14,8 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `data-on-*` is handled on the model's root, so content added after mount, such as rows cloned from a `<template>`, responds to events without `wire()`. Wiring is for `data-bind-*` attributes and event types not present when the model was initialized. See [Adding content later](https://github.com/ShakimaMF/sprincul/wiki/Events#adding-content-later).
+- **Breaking:** `data-on-*` events are handled through delegation on the model's root instead of on the element that defined the event. Within each model, only the handler on the element closest to the event target runs (the target itself or its nearest ancestor with a handler). See [Events](https://github.com/ShakimaMF/sprincul/wiki/Events).
 - **Breaking:** `data-on-*` handlers receive the element with the attribute first and the event second, like binding callbacks. A handler that uses its event changes from `save(e)` to `save(el, e)`, and `event.currentTarget` is now the model's root. See [Handler arguments](https://github.com/ShakimaMF/sprincul/wiki/Events#handler-arguments).
+- `wire()` also registers `data-on-*` event types not present when the model was initialized.
 - `unwire()` also releases wired content that was removed before it was called.
 
 ### Removed
