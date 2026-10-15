@@ -95,114 +95,90 @@ describe("Sprincul - Data Bindings", () => {
 
 			expect(label.textContent).toBe("Saved");
 		});
-	});
 
-	describe("Event handlers", () => {
-		test("handles click events via onclick attribute", async () => {
+		test("matches state keys in any case, since HTML lowercases data-bind-buttonText", async () => {
 			container.innerHTML = html`
 				<div data-model="TestModel">
-					<button onclick="handleClick">Click Me</button>
-					<span data-bind-clicked="updateClicked"></span>
+					<button data-on-click="rename">Rename</button>
+					<span data-bind-buttonText="showLabel"></span>
+					<span data-bind-buttontext="showLabel"></span>
+					<span data-bind-itemCount="showCount"></span>
 				</div>
 			`;
 
 			class TestModel extends SprinculModel {
 				beforeInit() {
-					this.state.clicked = false;
+					this.state.buttonText = "Save";
+					this.state.items = ["a"];
+					this.addComputedProp("itemCount", () => this.state.items.length, ["items"]);
 				}
 
-				handleClick() {
-					this.state.clicked = true;
+				rename() {
+					this.state.buttonText = "Saved";
+					this.state.items = ["a", "b"];
 				}
 
-				updateClicked(el: HTMLElement) {
-					el.textContent = this.state.clicked ? "Clicked!" : "Not clicked";
+				showLabel(el: HTMLElement) {
+					el.textContent = this.state.buttonText;
+				}
+
+				showCount(el: HTMLElement) {
+					el.textContent = String(this.state.itemCount);
 				}
 			}
 
 			Sprincul.register("TestModel", TestModel);
 			Sprincul.init();
 
-			const button = container.querySelector("button") as HTMLButtonElement;
-			const span = container.querySelector("span");
+			const [camel, lower, count] = Array.from(container.querySelectorAll("span"));
+			expect(camel.textContent).toBe("Save");
+			expect(count.textContent).toBe("1");
 
-			expect(span?.textContent).toBe("Not clicked");
-
-			button.click();
+			(container.querySelector("button") as HTMLButtonElement).click();
 			await waitForDomUpdate();
 
-			expect(span?.textContent).toBe("Clicked!");
+			expect(camel.textContent).toBe("Saved");
+			expect(lower.textContent).toBe("Saved");
+			expect(count.textContent).toBe("2");
 		});
+	});
 
-		// Note: keyboard/input synthetic events in happy-dom are unreliable; click is covered above.
-
-		test('leaves non-event attributes that start with "on" alone', async () => {
+	describe("Event handlers", () => {
+		test("leaves native on* attributes to the browser without binding, removing, or warning about them", async () => {
 			container.innerHTML = html`
-				<div data-model="FlagModel">
-					<button onclick="handleClick" once one only online data-keep="yes">Click Me</button>
+				<div data-model="NativeModel">
+					<button onclick="handleClick" once only online data-keep="yes">Click Me</button>
+					<img onerror="handleClick" />
 				</div>
 			`;
 
 			let clicks = 0;
 
-			class FlagModel extends SprinculModel {
+			class NativeModel extends SprinculModel {
 				handleClick() {
 					clicks++;
 				}
 			}
 
-			Sprincul.register("FlagModel", FlagModel);
-			Sprincul.init();
+			Sprincul.register("NativeModel", NativeModel);
 
-			const button = container.querySelector("button") as HTMLButtonElement;
-
-			// The real handler is consumed from the DOM and actually bound
-			expect(button.hasAttribute("onclick")).toBe(false);
-			button.click();
-			await waitForDomUpdate();
-			expect(clicks).toBe(1);
-
-			// Attributes that merely start with "on" are not event handlers and must survive
-			expect(button.getAttributeNames().sort()).toEqual(["data-keep", "once", "one", "online", "only"].sort());
-		});
-
-		test("still strips a genuine inline handler like onerror so the browser cannot run it", () => {
-			container.innerHTML = html`
-				<div data-model="ImageModel">
-					<img onerror="handleError" />
-				</div>
-			`;
-
-			class ImageModel extends SprinculModel {
-				handleError() {}
-			}
-
-			Sprincul.register("ImageModel", ImageModel);
-			Sprincul.init();
-
-			expect(container.querySelector("img")!.hasAttribute("onerror")).toBe(false);
-		});
-
-		test("does not warn about non-event attributes in devMode", () => {
-			container.innerHTML = html`
-				<div data-model="QuietModel">
-					<div once one only></div>
-				</div>
-			`;
-
-			class QuietModel extends SprinculModel {}
-			Sprincul.register("QuietModel", QuietModel);
-
-			const warnings: string[] = [];
-			const originalWarn = console.warn;
-			console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+			const warn = spyOn(console, "warn").mockImplementation(() => {});
 			try {
 				Sprincul.init({ devMode: true });
+				expect(warn).not.toHaveBeenCalled();
 			} finally {
-				console.warn = originalWarn;
+				warn.mockRestore();
 			}
 
-			expect(warnings).toHaveLength(0);
+			const button = container.querySelector("button") as HTMLButtonElement;
+			expect(button.getAttributeNames().sort()).toEqual(
+				["data-keep", "onclick", "once", "online", "only"].sort(),
+			);
+			expect(container.querySelector("img")!.getAttribute("onerror")).toBe("handleClick");
+
+			button.click();
+			await waitForDomUpdate();
+			expect(clicks).toBe(0);
 		});
 
 		test("handles events via data-on-* attributes and keeps them in the DOM", async () => {
@@ -241,7 +217,7 @@ describe("Sprincul - Data Bindings", () => {
 			let received = null as string | null;
 
 			class CustomEventModel extends SprinculModel {
-				handleAdded(e: Event) {
+				handleAdded(_el: HTMLElement, e: Event) {
 					received = e.type;
 				}
 			}
@@ -254,50 +230,6 @@ describe("Sprincul - Data Bindings", () => {
 			target.dispatchEvent(new EventCtor("item-added"));
 			expect(received).toBe("item-added");
 		});
-
-		for (const markup of [
-			`<button onclick="nativeClick" data-on-click="dataClick">Click Me</button>`,
-			`<button data-on-click="dataClick" onclick="nativeClick">Click Me</button>`,
-		]) {
-			test(`favors data-on-* over its on* twin and warns, regardless of attribute order: ${markup}`, async () => {
-				container.innerHTML = html`<div data-model="BothModel">${markup}</div>`;
-
-				const calls: string[] = [];
-
-				class BothModel extends SprinculModel {
-					nativeClick() {
-						calls.push("native");
-					}
-
-					dataClick() {
-						calls.push("data");
-					}
-				}
-
-				Sprincul.register("BothModel", BothModel);
-
-				const warnings: string[] = [];
-				const originalWarn = console.warn;
-				console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
-				try {
-					Sprincul.init({ devMode: true });
-				} finally {
-					console.warn = originalWarn;
-				}
-
-				const button = container.querySelector("button") as HTMLButtonElement;
-				expect(button.hasAttribute("onclick")).toBe(false);
-				expect(button.getAttribute("data-on-click")).toBe("dataClick");
-
-				button.click();
-				await waitForDomUpdate();
-
-				expect(calls).toEqual(["data"]);
-				expect(warnings).toHaveLength(1);
-				expect(warnings[0]).toContain("onclick");
-				expect(warnings[0]).toContain("data-on-click");
-			});
-		}
 
 		test("wire() on an already-bound element does not bind its data-on-* twice", async () => {
 			let clicks = 0;
@@ -320,93 +252,6 @@ describe("Sprincul - Data Bindings", () => {
 			button.click();
 			await waitForDomUpdate();
 			expect(clicks).toBe(1);
-		});
-
-		describe("processNativeEvents", () => {
-			function captureWarnings(run: () => void): string[] {
-				const warnings: string[] = [];
-				const warn = spyOn(console, "warn").mockImplementation((...args: unknown[]) => {
-					warnings.push(args.join(" "));
-				});
-				try {
-					run();
-				} finally {
-					warn.mockRestore();
-				}
-				return warnings;
-			}
-
-			test("binding native on* to model methods warns once per page that it's deprecated", () => {
-				container.innerHTML = html`
-					<div data-model="NativeModel">
-						<button onclick="save">Save</button>
-						<input oninput="update" />
-					</div>
-				`;
-
-				class NativeModel extends SprinculModel {
-					save() {}
-					update() {}
-				}
-				Sprincul.register("NativeModel", NativeModel);
-
-				const warnings = captureWarnings(() => Sprincul.init());
-
-				expect(warnings).toHaveLength(1);
-				expect(warnings[0]).toContain('use data-on-click="save" instead');
-				expect(warnings[0]).toContain('Sprincul.setOption("processNativeEvents", false)');
-			});
-
-			test("does not warn when no native on* names a model method", () => {
-				container.innerHTML = html`
-					<div data-model="InlineModel">
-						<button data-on-click="save" onmouseover="this.dataset.hover = 'yes'">Save</button>
-					</div>
-				`;
-
-				class InlineModel extends SprinculModel {
-					save() {}
-				}
-				Sprincul.register("InlineModel", InlineModel);
-
-				expect(captureWarnings(() => Sprincul.init())).toEqual([]);
-			});
-
-			test("false leaves native on* to the browser while data-on-* still binds", async () => {
-				container.innerHTML = html`
-					<div data-model="OptedInModel">
-						<button onclick="save" data-on-click="save">Save</button>
-						<input oninput="update" />
-					</div>
-				`;
-
-				let saves = 0;
-				let updates = 0;
-
-				class OptedInModel extends SprinculModel {
-					save() {
-						saves++;
-					}
-					update() {
-						updates++;
-					}
-				}
-				Sprincul.register("OptedInModel", OptedInModel);
-
-				const warnings = captureWarnings(() => Sprincul.init({ devMode: true, processNativeEvents: false }));
-
-				const button = container.querySelector("button") as HTMLButtonElement;
-				const input = container.querySelector("input") as HTMLInputElement;
-				expect(button.getAttribute("onclick")).toBe("save");
-				expect(input.getAttribute("oninput")).toBe("update");
-				expect(warnings).toEqual([]);
-
-				button.click();
-				input.dispatchEvent(new input.ownerDocument.defaultView!.Event("input"));
-				await waitForDomUpdate();
-				expect(saves).toBe(1);
-				expect(updates).toBe(0);
-			});
 		});
 
 		test("comprehensive integration: event changes state, multiple elements react", async () => {

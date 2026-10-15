@@ -7,6 +7,4 @@ import * as models from "./models/index.js";
  * children are there when it mounts.
  */
 Sprincul.setOption("devMode", true);
-// Events use data-on-*, so opt in to leaving native on* attributes to the browser
-Sprincul.setOption("processNativeEvents", false);
 Sprincul.registerAll(models);

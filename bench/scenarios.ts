@@ -3,9 +3,6 @@ import { Sprincul, SprinculModel } from "../src/index.ts";
 
 /** Runs in the browser page served by run.ts. */
 
-// Measure the future default: events use data-on-*, and native on* attributes are left to the browser
-Sprincul.setOption("processNativeEvents", false);
-
 /** Times are Sprincul's own work; `withLayout` is the median including the browser's layout of what it changed. */
 export type Result = {
 	name: string;

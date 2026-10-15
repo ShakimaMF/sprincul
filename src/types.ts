@@ -6,9 +6,8 @@ export type { SprinculModel };
  * Shared Sprincul options
  *
  * @var {boolean} devMode - Debug logging and model instance access. Default `false`.
- * @var {boolean} processNativeEvents - Transitional setting that binds native on* attribute events
  */
-export type SprinculOptions = { devMode: boolean; processNativeEvents: boolean };
+export type SprinculOptions = { devMode: boolean };
 
 /**
  * Options a model sets on itself with `static options`, plus the shared {@link SprinculOptions}
@@ -21,13 +20,6 @@ export type SprinculModelConstructor = (new (element: HTMLElement) => SprinculMo
 	options?: SprinculModelOptions;
 };
 export type SprinculModelRegistry = Map<string, SprinculModelConstructor>;
-
-export type DomListenerRecord = {
-	element: HTMLElement;
-	type: string;
-	listener: EventListener;
-	options?: boolean | AddEventListenerOptions;
-};
 
 export interface SprinculModelInfo {
 	name: string;

@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add `rewire()`, which releases the bindings of content a model has rebuilt and wires the new content in one call. See [Rebuilding content with `rewire()`](https://github.com/ShakimaMF/sprincul/wiki/Wiring-Dynamic-Content#rebuilding-content-with-rewire).
+- Add a `devMode` warning for `$emit()` event names with uppercase letters, which `data-on-*` can't listen for. See [Model Events](https://github.com/ShakimaMF/sprincul/wiki/Model-Events).
+
+### Changed
+
+- **Breaking:** `data-on-*` events are handled through delegation on the model's root instead of on the element that defined the event. Within each model, only the handler on the element closest to the event target runs (the target itself or its nearest ancestor with a handler). See [Events](https://github.com/ShakimaMF/sprincul/wiki/Events).
+- **Breaking:** `data-on-*` handlers receive the element with the attribute first and the event second, like binding callbacks. A handler that uses its event changes from `save(e)` to `save(el, e)`, and `event.currentTarget` is now the model's root. See [Handler arguments](https://github.com/ShakimaMF/sprincul/wiki/Events#handler-arguments).
+- `wire()` also registers `data-on-*` event types not present when the model was initialized.
+- `unwire()` also releases wired content that was removed before it was called.
+
+### Removed
+
+- **Breaking:** Native `on*` attributes are no longer bound to model methods and are left to the browser. Use `data-on-*` instead (`onclick="save"` becomes `data-on-click="save"`).
+- **Breaking:** The transitional `processNativeEvents` option is removed.
+
+### Fixed
+
+- Fix camelCase `data-bind-*` names such as `data-bind-buttonText` never updating; names now match state keys in any case, including in `beforeInit()`'s defaults.
+
 ## [0.5.0] - 2026-10-12
 
 ### Added
@@ -119,6 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Initial release._
 
+[Unreleased]: https://github.com/ShakimaMF/sprincul/compare/v0.5.0...HEAD
 [0.5.0]: https://github.com/ShakimaMF/sprincul/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ShakimaMF/sprincul/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ShakimaMF/sprincul/compare/v0.2.1...v0.3.0

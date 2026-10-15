@@ -42,7 +42,7 @@ export default class Sprincul {
 	/** Custom elements whose unmount is still settling, so reconnecting waits for it. */
 	static #elementTeardowns = new WeakMap<HTMLElement, Promise<void>>();
 	/** Page-wide defaults from setOption(), below a call's options and a model's `static options`. */
-	static #options: SprinculOptions = { devMode: false, processNativeEvents: true };
+	static #options: SprinculOptions = { devMode: false };
 
 	static store = {
 		get<T = any>(key: string): T | undefined {
@@ -305,11 +305,7 @@ export default class Sprincul {
 			}
 
 			try {
-				const info = Sprincul.processModelElement(
-					element as HTMLElement,
-					options?.devMode,
-					options?.processNativeEvents,
-				);
+				const info = Sprincul.processModelElement(element as HTMLElement, options?.devMode);
 				if (info) modelInfos.push(info);
 			} catch (e) {
 				console.error(`[Sprincul] Failed to process model element:`, e);
@@ -346,15 +342,10 @@ export default class Sprincul {
 	 *
 	 * @param {HTMLElement} element
 	 * @param devModeOption - See `SprinculOptions`; omitted, it falls back like any other option
-	 * @param processNativeEventsOption - See `SprinculOptions`; omitted, it falls back like any other option
 	 *
 	 * @returns The model info, or `null` if the element couldn't be processed
 	 */
-	static processModelElement(
-		element: HTMLElement,
-		devModeOption?: boolean,
-		processNativeEventsOption?: boolean,
-	): SprinculModelInfo | null {
+	static processModelElement(element: HTMLElement, devModeOption?: boolean): SprinculModelInfo | null {
 		const modelName = element.dataset.model;
 		if (!modelName) {
 			console.warn('[Sprincul] Element is missing a "data-model" attribute. Skipping.');
@@ -368,7 +359,6 @@ export default class Sprincul {
 		}
 
 		const devMode = Sprincul.#option("devMode", ModelClass, devModeOption);
-		const processNativeEvents = Sprincul.#option("processNativeEvents", ModelClass, processNativeEventsOption);
 
 		if (Sprincul.#processedElements.has(element)) {
 			if (devMode && Sprincul.#tearingDown(element)) {
@@ -386,7 +376,7 @@ export default class Sprincul {
 		let defaults: BoundDefaults;
 		try {
 			model = new ModelClass(element);
-			core = new SprinculCore(model, devMode, processNativeEvents);
+			core = new SprinculCore(model, devMode);
 			setCore(model, core);
 			Sprincul.#trackModelInstance(modelName, model);
 
@@ -495,7 +485,7 @@ export default class Sprincul {
 
 		let info: SprinculModelInfo | null;
 		try {
-			info = Sprincul.processModelElement(element, options?.devMode, options?.processNativeEvents);
+			info = Sprincul.processModelElement(element, options?.devMode);
 		} catch (e) {
 			Sprincul.#restoreModelName(element, previousModelName);
 			throw e;

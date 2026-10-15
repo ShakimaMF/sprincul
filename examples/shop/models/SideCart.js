@@ -3,8 +3,8 @@ import { Cart } from "../lib/cart.js";
 import { Pricing } from "../lib/pricing.js";
 
 /*
- * The slide-out cart. Its rows are cloned from a <template>, wired, and appended on every change to the cart
- * or the discount, and its totals are computed properties.
+ * The slide-out cart. Its rows are cloned from a <template> and appended on every change to the cart or the
+ * discount, and its totals are computed properties.
  */
 export default class SideCart extends SprinculModel {
 	static options = { customElement: "side-cart" };
@@ -45,29 +45,32 @@ export default class SideCart extends SprinculModel {
 		Cart.close();
 	}
 
-	/** @param {MouseEvent} e */
-	increment(e) {
-		const id = this.#lineId(e);
+	/** @param {HTMLButtonElement} el */
+	increment(el) {
+		const id = this.#lineId(el);
 		Cart.setQty(id, Cart.qtyOf(id) + 1);
 	}
 
-	/** @param {MouseEvent} e */
-	decrement(e) {
-		const id = this.#lineId(e);
+	/** @param {HTMLButtonElement} el */
+	decrement(el) {
+		const id = this.#lineId(el);
 		Cart.setQty(id, Cart.qtyOf(id) - 1);
 	}
 
-	/** @param {MouseEvent} e */
-	remove(e) {
-		Cart.remove(this.#lineId(e));
+	/** @param {HTMLButtonElement} el */
+	remove(el) {
+		Cart.remove(this.#lineId(el));
 	}
 
 	toggleCode() {
 		this.state.codeOpen = !this.state.codeOpen;
 	}
 
-	/** @param {SubmitEvent} e */
-	applyCode(e) {
+	/**
+	 * @param {HTMLFormElement} el
+	 * @param {SubmitEvent} e
+	 */
+	applyCode(el, e) {
 		e.preventDefault();
 		const input = this.$ref("code");
 		const code = input.value.trim();
@@ -114,9 +117,6 @@ export default class SideCart extends SprinculModel {
 
 	/** @param {HTMLUListElement} list */
 	renderLines(list) {
-		// Release the old rows' listeners before replacing them
-		this.unwire(list);
-
 		const rows = document.createDocumentFragment();
 		const template = this.$ref("line");
 
@@ -138,7 +138,6 @@ export default class SideCart extends SprinculModel {
 			rows.append(row);
 		});
 
-		this.wire(rows);
 		list.replaceChildren(rows);
 	}
 
@@ -210,8 +209,8 @@ export default class SideCart extends SprinculModel {
 		return lines.reduce((sum, line) => sum + Pricing.discounted(line.price * line.qty, percentOff), 0);
 	}
 
-	/** @param {MouseEvent} e */
-	#lineId(e) {
-		return e.currentTarget.closest("[data-id]").dataset.id;
+	/** @param {HTMLElement} el */
+	#lineId(el) {
+		return el.closest("[data-id]").dataset.id;
 	}
 }

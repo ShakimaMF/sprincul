@@ -502,41 +502,6 @@ describe("Sprincul - Teardown", () => {
 		expect(clicks).toBe(1);
 	});
 
-	test("remounting does not restore native on* handlers, which are consumed on first bind", async () => {
-		let clicks = 0;
-
-		class StaleMarkupModel extends SprinculModel {
-			beforeInit() {
-				this.state.count = 0;
-			}
-			increment() {
-				clicks++;
-			}
-			showCount(el: HTMLElement) {
-				el.textContent = String(this.state.count);
-			}
-		}
-
-		const el = document.createElement("div");
-		el.innerHTML = html`<button onclick="increment"></button><span data-bind-count="showCount"></span>`;
-		container.appendChild(el);
-
-		Sprincul.mount(el, StaleMarkupModel);
-		Sprincul.unmount(el);
-		const second = Sprincul.mount(el, StaleMarkupModel) as InstanceType<typeof StaleMarkupModel>;
-
-		// data-bind-* attributes survive, so the remounted instance still drives the DOM
-		second.state.count = 3;
-		await waitForDomUpdate();
-		expect(el.querySelector("span")!.textContent).toBe("3");
-
-		// The on* attribute was consumed by the first mount, so remounting stale markup cannot
-		// restore the listener: a remount needs freshly rendered markup
-		(el.querySelector("button") as HTMLButtonElement).click();
-		await waitForDomUpdate();
-		expect(clicks).toBe(0);
-	});
-
 	test("remounting on an element mid-async-beforeDestroy is a no-op until teardown finishes", async () => {
 		let resolveDestroy: () => void;
 		const destroySignal = new Promise<void>((resolve) => {
