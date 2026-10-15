@@ -94,6 +94,7 @@ The full reference lives in the [wiki](https://github.com/ShakimaMF/sprincul/wik
 Try the [live demo](https://shakimamf.github.io/sprincul/), a product listing with a side cart. Its source is in [`examples/`](examples); run it locally with `bun run example`. For more usage patterns, see the tests under `tests`.
 
 ## Tips for success
+
 - Pick one direction for updates and stay consistent. If bindings render the UI, let them own the DOM. If user input updates state, avoid mixing that with ad hoc DOM manipulation.
 
 ## License
