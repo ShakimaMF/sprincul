@@ -345,24 +345,27 @@ describe("Sprincul - Delegated events", () => {
 
 	test("a missing handler on added content warns once in devMode", () => {
 		const warn = spyOn(console, "warn").mockImplementation(() => {});
-		const root = document.createElement("div");
-		root.innerHTML = html`<button data-on-click="save"></button>`;
-		container.appendChild(root);
-		Sprincul.mount(
-			root,
-			class extends SprinculModel {
-				save() {}
-			},
-			{ devMode: true },
-		);
+		try {
+			const root = document.createElement("div");
+			root.innerHTML = html`<button data-on-click="save"></button>`;
+			container.appendChild(root);
+			Sprincul.mount(
+				root,
+				class extends SprinculModel {
+					save() {}
+				},
+				{ devMode: true },
+			);
 
-		root.insertAdjacentHTML("beforeend", html`<button id="added" data-on-click="missing"></button>`);
-		const added = root.querySelector<HTMLElement>("#added")!;
-		added.click();
-		added.click();
+			root.insertAdjacentHTML("beforeend", html`<button id="added" data-on-click="missing"></button>`);
+			const added = root.querySelector<HTMLElement>("#added")!;
+			added.click();
+			added.click();
 
-		expect(warn).toHaveBeenCalledTimes(1);
-		expect(warn).toHaveBeenCalledWith('[Sprincul] Event handler method "missing" not found for data-on-click.');
-		warn.mockRestore();
+			expect(warn).toHaveBeenCalledTimes(1);
+			expect(warn).toHaveBeenCalledWith('[Sprincul] Event handler method "missing" not found for data-on-click.');
+		} finally {
+			warn.mockRestore();
+		}
 	});
 });

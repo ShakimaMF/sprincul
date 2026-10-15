@@ -163,9 +163,12 @@ describe("Sprincul - Data Bindings", () => {
 			Sprincul.register("NativeModel", NativeModel);
 
 			const warn = spyOn(console, "warn").mockImplementation(() => {});
-			Sprincul.init({ devMode: true });
-			expect(warn).not.toHaveBeenCalled();
-			warn.mockRestore();
+			try {
+				Sprincul.init({ devMode: true });
+				expect(warn).not.toHaveBeenCalled();
+			} finally {
+				warn.mockRestore();
+			}
 
 			const button = container.querySelector("button") as HTMLButtonElement;
 			expect(button.getAttributeNames().sort()).toEqual(

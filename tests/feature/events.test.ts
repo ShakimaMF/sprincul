@@ -148,20 +148,21 @@ describe("Sprincul - Model events", () => {
 
 	test("$emit with uppercase letters warns in devMode that data-on-* can't hear it", () => {
 		const warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+		try {
+			const el = document.createElement("div");
+			container.appendChild(el);
+			const instance = Sprincul.mount(el, class extends SprinculModel {}, { devMode: true });
 
-		const el = document.createElement("div");
-		container.appendChild(el);
-		const instance = Sprincul.mount(el, class extends SprinculModel {}, { devMode: true });
+			instance.$emit("cart-updated");
+			expect(warnSpy).not.toHaveBeenCalled();
 
-		instance.$emit("cart-updated");
-		expect(warnSpy).not.toHaveBeenCalled();
-
-		instance.$emit("cartUpdated");
-		expect(warnSpy).toHaveBeenCalledWith(
-			'[Sprincul] $emit("cartUpdated") can\'t be heard by data-on-* because HTML lowercases attribute names; use a lowercase name such as "cart-updated".',
-		);
-
-		warnSpy.mockRestore();
+			instance.$emit("cartUpdated");
+			expect(warnSpy).toHaveBeenCalledWith(
+				'[Sprincul] $emit("cartUpdated") can\'t be heard by data-on-* because HTML lowercases attribute names; use a lowercase name such as "cart-updated".',
+			);
+		} finally {
+			warnSpy.mockRestore();
+		}
 	});
 
 	test("$listen also stops when the caller's own signal aborts", () => {
