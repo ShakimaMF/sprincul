@@ -62,8 +62,8 @@ export default class SprinculModel {
 	beforeDestroy?(): void | Promise<void>;
 
 	/**
-	 * Bind the data-bind-* attributes in content added to this model, and handle any data-on-* event types in it
-	 * the model hasn't used yet. Content with only data-on-* attributes for types the model already uses needs no wiring.
+	 * Bind the data-bind-* attributes in content added to this model, and register any data-on-* event types in it
+	 * that weren't present when the model was initialized.
 	 *
 	 * Content not appended yet (a `DocumentFragment` or detached element) can be wired first and appended after:
 	 * its binding callbacks run in the next frame, once it's usually on the page.

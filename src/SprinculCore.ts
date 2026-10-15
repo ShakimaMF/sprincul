@@ -41,11 +41,11 @@ export class SprinculCore {
 	#eventTypes = new Set<string>();
 	/** Set once beforeInit finishes, so an event can't reach a model method before its state is seeded */
 	#listening = false;
-	/*
-	 * Bubbling events are handled as they bubble through the root. Non-bubbling ones (focus, mouseenter, a
-	 * CustomEvent without `bubbles`) never reach it that way, so they're caught on the way down instead.
-	 */
 	readonly #onBubble = (event: Event) => event.bubbles && this.#dispatch(event);
+	/**
+	 * Events that don't bubble (focus, mouseenter, a CustomEvent without `bubbles`) never travel up to the root, but a
+	 * capture listener on the root still receives them.
+	 */
 	readonly #onCapture = (event: Event) => !event.bubbles && this.#dispatch(event);
 	/** Missing handler methods already warned about, so a missing one warns once rather than per event */
 	#warnedHandlers = new Set<string>();
@@ -473,22 +473,33 @@ export class SprinculCore {
 	}
 
 	/**
-	 * Calls the data-on-<type> handler of each element from the target up to the root, deepest first, like
-	 * native bubbling. Elements inside a nested model are its to handle, so they're skipped, but the walk
-	 * carries on above it.
+	 * The element nearest the event's target with a data-on-<type> for it (the target or its closest such ancestor)
+	 * is the boundary: it handles the event, and elements further up in the same model don't. A match inside a
+	 * nested model is that model's, so the search carries on above it. Between models the event bubbles natively.
 	 */
 	#dispatch(event: Event) {
 		const root = this.instance.$el;
 		const attribute = `data-on-${event.type}`;
-
 		const target = event.target as Node | null;
-		for (let el = target?.nodeType === 1 ? (target as Element) : null; el; el = el.parentElement) {
-			if (el.hasAttribute(attribute) && el.closest("[data-model]") === root) {
-				this.#callHandler(el as HTMLElement, attribute, event);
-				if (event.cancelBubble) return;
+		if (target?.nodeType !== 1) return;
+		const start = target as Element;
+
+		// A non-bubbling event only reaches its own target's handler
+		if (!event.bubbles) {
+			if (start.hasAttribute(attribute) && start.closest("[data-model]") === root) {
+				this.#callHandler(start as HTMLElement, attribute, event);
 			}
-			// A non-bubbling event only reaches its own target's handler
-			if (el === root || !event.bubbles) return;
+			return;
+		}
+
+		const selector = `[${root.ownerDocument.defaultView!.CSS.escape(attribute)}]`;
+		for (let el = start.closest(selector); el && root.contains(el);) {
+			const owner = el.closest("[data-model]")!;
+			if (owner === root) {
+				this.#callHandler(el as HTMLElement, attribute, event);
+				return;
+			}
+			el = owner.parentElement?.closest(selector) ?? null;
 		}
 	}
 

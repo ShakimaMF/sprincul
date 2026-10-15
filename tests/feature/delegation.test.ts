@@ -120,43 +120,89 @@ describe("Sprincul - Delegated events", () => {
 		expect(calls).toEqual(["second"]);
 	});
 
-	test("handlers on the path run deepest first, like native bubbling", () => {
+	test("the nearest handler is the boundary, and handlers further up in the model don't run", () => {
 		const calls: string[] = [];
 		const { root } = mountWith(
-			html`<section data-on-click="outer"><button data-on-click="inner"></button></section>`,
+			html`<li data-on-click="select">
+				<span>Milk</span>
+				<button data-on-click="remove"><b>x</b> Remove</button>
+			</li>`,
 			class extends SprinculModel {
-				outer() {
-					calls.push("outer");
+				select() {
+					calls.push("select");
 				}
-				inner() {
-					calls.push("inner");
+				remove() {
+					calls.push("remove");
 				}
 			},
 		);
 
+		root.querySelector("b")!.click();
 		root.querySelector("button")!.click();
+		root.querySelector("span")!.click();
 
-		expect(calls).toEqual(["inner", "outer"]);
+		expect(calls).toEqual(["remove", "remove", "select"]);
 	});
 
-	test("stopPropagation() stops the handlers above it", () => {
+	test("a handler on the model's root handles the clicks its inner handlers don't", () => {
 		const calls: string[] = [];
-		const { root } = mountWith(
-			html`<section data-on-click="outer"><button data-on-click="inner"></button></section>`,
+		const root = document.createElement("div");
+		root.setAttribute("data-on-click", "close");
+		root.innerHTML = html`<input /><button data-on-click="save">Save</button>`;
+		container.appendChild(root);
+		Sprincul.mount(
+			root,
 			class extends SprinculModel {
-				outer() {
-					calls.push("outer");
+				close() {
+					calls.push("close");
 				}
-				inner(_el: HTMLElement, e: Event) {
-					calls.push("inner");
-					e.stopPropagation();
+				save() {
+					calls.push("save");
 				}
 			},
 		);
 
 		root.querySelector("button")!.click();
+		root.querySelector("input")!.click();
 
-		expect(calls).toEqual(["inner"]);
+		expect(calls).toEqual(["save", "close"]);
+	});
+
+	test("event types are independent, so another type's handler is no boundary", () => {
+		const calls: string[] = [];
+		const { root } = mountWith(
+			html`<li data-on-preview="preview"><button data-on-click="remove">Remove</button></li>`,
+			class extends SprinculModel {
+				preview() {
+					calls.push("preview");
+				}
+				remove() {
+					calls.push("remove");
+				}
+			},
+		);
+
+		const button = root.querySelector("button")!;
+		button.dispatchEvent(event(root, "preview", { bubbles: true }));
+		button.click();
+
+		expect(calls).toEqual(["preview", "remove"]);
+	});
+
+	test("custom event names with characters a selector can't take raw still work", () => {
+		const calls: string[] = [];
+		const { root } = mountWith(
+			html`<section data-on-player:ready="start"><span></span></section>`,
+			class extends SprinculModel {
+				start() {
+					calls.push("start");
+				}
+			},
+		);
+
+		root.querySelector("span")!.dispatchEvent(event(root, "player:ready", { bubbles: true }));
+
+		expect(calls).toEqual(["start"]);
 	});
 
 	describe("nested models", () => {
@@ -180,12 +226,15 @@ describe("Sprincul - Delegated events", () => {
 			Sprincul.registerAll({ Page, Cart });
 			container.innerHTML = html`<div data-model="Page">
 				<section data-on-click="track">
-					<div data-model="Cart"><button data-on-click="save"></button></div>
+					<div data-model="Cart">
+						<p>Your items</p>
+						<button data-on-click="save"></button>
+					</div>
 				</section>
 			</div>`;
 			Sprincul.init({ root: container });
 
-			return { calls, button: container.querySelector("button")! };
+			return { calls, button: container.querySelector("button")!, text: container.querySelector("p")! };
 		}
 
 		test("the child's handler runs, then the parent's above it, and the parent never runs the child's", () => {
@@ -194,6 +243,14 @@ describe("Sprincul - Delegated events", () => {
 			button.click();
 
 			expect(calls).toEqual(["cart:save", "page:track"]);
+		});
+
+		test("a click in the nested model with no handler of its own reaches the parent's", () => {
+			const { calls, text } = mountNested(false);
+
+			text.click();
+
+			expect(calls).toEqual(["page:track"]);
 		});
 
 		test("stopPropagation() in the child keeps the event from the parent", () => {
