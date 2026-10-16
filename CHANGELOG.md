@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fix content inside a custom element that hasn't mounted yet being bound to the surrounding model, by `wire()` or `data-watch`. A registered custom element's tag is a model root from the start.
 - Fix camelCase `data-bind-*` names such as `data-bind-buttonText` never updating; names now match state keys in any case, including in `beforeInit()`'s defaults.
 
 ## [0.5.0] - 2026-10-12
