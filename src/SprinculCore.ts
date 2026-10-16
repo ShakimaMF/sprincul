@@ -3,8 +3,8 @@ import type SprinculModel from "./SprinculModel";
 import type { BoundDefaults } from "./types";
 
 /**
- * `deferCallbacks` holds initial callbacks until beforeInit finishes; `deferToFrame` runs them in the next
- * frame's update pass instead, for wired content that isn't in the model yet.
+ * `deferCallbacks` holds initial callbacks and listeners until beforeInit finishes; `deferToFrame` runs the callbacks
+ * in the next frame's update pass instead, for wired content that isn't in the model yet.
  */
 type ProcessOptions = {
 	defaults?: BoundDefaults;
@@ -15,16 +15,25 @@ type ProcessOptions = {
 };
 
 /**
- * `wiredBy` is the content wire() was given, unset for the initial scan, so unwire() releases only what wiring added.
- * `wiredOutside` marks content wired before it was appended, which is released once it leaves the model again.
+ * What a data-bind-* or data-on-* attribute registered.
+ *
+ * @var {HTMLElement | DocumentFragment} wiredBy - The content wire() was given, or the data-watch element it was added to.
+ * Unset for the model's own markup, which wire() and unwire() leave alone.
+ * @var {boolean} wiredOutside - Content wired before it was appended, released once it leaves the model again
  */
-type BindingRecord = {
-	prop: string;
+type Wiring = { wiredBy?: HTMLElement | DocumentFragment; wiredOutside?: boolean };
+type BindingRecord = Wiring & { kind: "bind"; prop: string; element: HTMLElement; callback: string };
+type ListenerRecord = Wiring & {
+	kind: "on";
 	element: HTMLElement;
-	callback: string;
-	wiredBy?: HTMLElement | DocumentFragment;
-	wiredOutside?: boolean;
+	type: string;
+	method: string;
+	listener: EventListener;
+	attached: boolean;
 };
+type TrackedRecord = BindingRecord | ListenerRecord;
+
+const wiring = ({ wiredBy, wiredOutside }: ProcessOptions): Wiring => ({ wiredBy, wiredOutside });
 
 /**
  * @class SprinculCore
@@ -32,27 +41,17 @@ type BindingRecord = {
  */
 export class SprinculCore {
 	#bindings = new Map<string, Set<BindingRecord>>();
-	/** element -> its own binding records, so dedupe and subtree release don't scan every binding */
-	#bindingsByElement = new Map<HTMLElement, Set<BindingRecord>>();
-	/** content passed to wire() -> the bindings it registered, so they're released even after being removed from it */
-	#bindingsByWire = new Map<HTMLElement | DocumentFragment, Set<BindingRecord>>();
+	/** element -> its own records, so dedupe and subtree release don't scan every record */
+	#recordsByElement = new Map<HTMLElement, Set<TrackedRecord>>();
+	/** content passed to wire() (or a data-watch element) -> the records it registered, found even once removed */
+	#recordsByWire = new Map<HTMLElement | DocumentFragment, Set<TrackedRecord>>();
 	#computed = new Map<string, ReadableAtom>();
-	/** Event types used by data-on-*, each handled by listeners on the model's root */
-	#eventTypes = new Set<string>();
-	/** Set once beforeInit finishes, so an event can't reach a model method before its state is seeded */
-	#listening = false;
-	readonly #onBubble = (event: Event) => event.bubbles && this.#dispatch(event);
-	/**
-	 * Events that don't bubble (focus, mouseenter, a CustomEvent without `bubbles`) never travel up to the root, but a
-	 * capture listener on the root still receives them.
-	 */
-	readonly #onCapture = (event: Event) => !event.bubbles && this.#dispatch(event);
-	/** Missing handler methods already warned about, so a missing one warns once rather than per event */
-	#warnedHandlers = new Set<string>();
 	#unsubscribers = new Set<() => void>();
 	#pendingUpdates = new Set<string>();
 	#updateScheduled: boolean = false;
 	#pendingInitialCallbacks: Array<BindingRecord> = [];
+	/** Listeners held until beforeInit finishes, so an event can't reach a model method before its state is seeded */
+	#pendingListeners: Array<ListenerRecord> = [];
 	/** Initial callbacks for wired content that wasn't in the model yet, run in the next frame's update pass */
 	#frameCallbacks: Array<BindingRecord> = [];
 	readonly #isBrowser: boolean;
@@ -161,8 +160,13 @@ export class SprinculCore {
 		});
 	}
 
+	/**
+	 * Wires `content` to this model. Content already in the model is brought in line with what it holds now: what
+	 * was wired through it and has since gone is released, and what's new is bound.
+	 */
 	processAddedElement(content: HTMLElement | DocumentFragment) {
 		if (this.instance.$el.contains(content)) {
+			this.#releaseRecords(this.#goneFrom(content));
 			this.#processTree(content, { deferCallbacks: false, wiredBy: content });
 			return;
 		}
@@ -185,56 +189,102 @@ export class SprinculCore {
 		});
 	}
 
-	/**
-	 * Reverses wire() for `element`: what wiring `element` registered, even if since removed from it, and what was
-	 * wired anywhere inside it. Content wired before it was appended has no such element to find it by, so it's
-	 * released once it has left the model. Bindings from the model's own markup stay, so a callback can unwire the
-	 * container it was handed.
-	 */
-	unwireElement(element: HTMLElement) {
-		const root = this.instance.$el;
-		const pending = new Set(this.#frameCallbacks);
-		const released = new Set(this.#bindingsByWire.get(element));
-		this.#bindingsByElement.forEach((records, node) => {
-			const inside = element.contains(node);
-			const leftModel = !root.contains(node);
+	/** What wiring `content` registered that it no longer holds, and content wired before appending that has left the model. */
+	#goneFrom(content: HTMLElement | DocumentFragment): Set<TrackedRecord> {
+		const gone = new Set<TrackedRecord>();
+		this.#recordsByWire.get(content)?.forEach((record) => {
+			if (!content.contains(record.element)) gone.add(record);
+		});
+		this.#leftModel().forEach((record) => gone.add(record));
+		return gone;
+	}
+
+	/** Content wired before it was appended has no container to find it by, so it's released once it has left the model. */
+	#leftModel(): TrackedRecord[] {
+		const pending = new Set<TrackedRecord>(this.#frameCallbacks);
+		const left: TrackedRecord[] = [];
+		this.#recordsByElement.forEach((records, node) => {
+			if (this.instance.$el.contains(node)) return;
 			records.forEach((record) => {
-				if (!record.wiredBy) return;
-				if (inside || (leftModel && record.wiredOutside && !pending.has(record))) released.add(record);
+				if (record.wiredOutside && !pending.has(record)) left.push(record);
 			});
 		});
-		if (released.size === 0) return;
-
-		released.forEach((record) => this.#release(record));
-		this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter((record) => !released.has(record));
-		this.#frameCallbacks = this.#frameCallbacks.filter((record) => !released.has(record));
-	}
-
-	/** Releases `element`'s wired bindings, then wires what it holds now. */
-	rewireElement(element: HTMLElement) {
-		this.unwireElement(element);
-		this.processAddedElement(element);
-	}
-
-	#release(record: BindingRecord) {
-		const bindings = this.#bindings.get(record.prop);
-		bindings?.delete(record);
-		if (bindings?.size === 0) this.#bindings.delete(record.prop);
-
-		const elementBindings = this.#bindingsByElement.get(record.element);
-		elementBindings?.delete(record);
-		if (elementBindings?.size === 0) this.#bindingsByElement.delete(record.element);
-
-		if (!record.wiredBy) return;
-		const wired = this.#bindingsByWire.get(record.wiredBy);
-		wired?.delete(record);
-		if (wired?.size === 0) this.#bindingsByWire.delete(record.wiredBy);
+		return left;
 	}
 
 	/**
-	 * Fires the initial data-bind-* callbacks from setupBindings() and starts handling data-on-* events.
-	 * Call once beforeInit has genuinely finished, so a user interaction can't reach a model method
-	 * before its state is seeded.
+	 * Releases what wiring `element` registered, even if since removed from it, and what was wired anywhere inside it.
+	 * The model's own markup stays bound, so a callback can unwire the container it was handed.
+	 */
+	unwireElement(element: HTMLElement) {
+		const released = new Set(this.#recordsByWire.get(element));
+		this.#recordsByElement.forEach((records, node) => {
+			if (!element.contains(node)) return;
+			records.forEach((record) => {
+				if (record.wiredBy) released.add(record);
+			});
+		});
+		this.#leftModel().forEach((record) => released.add(record));
+		this.#releaseRecords(released);
+	}
+
+	/**
+	 * Applies a change to one of this model's data-watch elements: everything bound inside the elements removed from
+	 * it is released, and the elements added to it are bound. An element moved within it stays bound.
+	 */
+	applyWatchedChanges(watched: HTMLElement, added: Set<Element>, removed: Set<Element>) {
+		if (removed.size > 0) {
+			const released = new Set<TrackedRecord>();
+			this.#recordsByElement.forEach((records, element) => {
+				if (watched.contains(element)) return;
+				for (let node: Element | null = element; node; node = node.parentElement) {
+					if (!removed.has(node)) continue;
+					records.forEach((record) => released.add(record));
+					return;
+				}
+			});
+			this.#releaseRecords(released);
+		}
+
+		added.forEach((element) => {
+			// Inside another added element (bound with it), or already gone again
+			if (element.parentElement && added.has(element.parentElement)) return;
+			if (!watched.contains(element)) return;
+			this.#processTree(element as HTMLElement, { deferCallbacks: false, wiredBy: watched });
+		});
+	}
+
+	#releaseRecords(records: Set<TrackedRecord>) {
+		if (records.size === 0) return;
+		records.forEach((record) => this.#release(record));
+		this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter((record) => !records.has(record));
+		this.#pendingListeners = this.#pendingListeners.filter((record) => !records.has(record));
+		this.#frameCallbacks = this.#frameCallbacks.filter((record) => !records.has(record));
+	}
+
+	#release(record: TrackedRecord) {
+		if (record.kind === "bind") {
+			const bindings = this.#bindings.get(record.prop);
+			bindings?.delete(record);
+			if (bindings?.size === 0) this.#bindings.delete(record.prop);
+		} else if (record.attached) {
+			record.element.removeEventListener(record.type, record.listener);
+		}
+
+		const elementRecords = this.#recordsByElement.get(record.element);
+		elementRecords?.delete(record);
+		if (elementRecords?.size === 0) this.#recordsByElement.delete(record.element);
+
+		if (!record.wiredBy) return;
+		const wired = this.#recordsByWire.get(record.wiredBy);
+		wired?.delete(record);
+		if (wired?.size === 0) this.#recordsByWire.delete(record.wiredBy);
+	}
+
+	/**
+	 * Fires the initial data-bind-* callbacks and attaches the queued data-on-* listeners from setupBindings().
+	 * Call once beforeInit has genuinely finished, so a user interaction can't reach a model method before its
+	 * state is seeded.
 	 */
 	runQueuedInitialCallbacks() {
 		const queuedCallbacks = this.#pendingInitialCallbacks;
@@ -246,8 +296,9 @@ export class SprinculCore {
 
 		queuedCallbacks.forEach((binding) => this.#updateElement(binding));
 
-		this.#listening = true;
-		this.#eventTypes.forEach((type) => this.#listen(type));
+		const queuedListeners = this.#pendingListeners;
+		this.#pendingListeners = [];
+		queuedListeners.forEach((record) => this.#attach(record));
 	}
 
 	#processTree(container: HTMLElement | DocumentFragment, options: ProcessOptions) {
@@ -261,24 +312,15 @@ export class SprinculCore {
 
 		if (container instanceof HTMLElement && isOwned(container)) {
 			this.#processElementBindings(container, options);
+			if (container === this.instance.$el && container.hasAttribute("data-watch")) {
+				this.#warn(
+					"data-watch on a model root watches the whole model; put it on the element whose contents change.",
+				);
+			}
 		}
 
-		container.querySelectorAll("*").forEach((el) => {
-			if (!isOwned(el)) return;
-			this.#processElementBindings(el as HTMLElement, options);
-			// Content rendered from a template later is handled by the root, so learn its event types now
-			if (el.localName === "template") this.#addTemplateEventTypes((el as HTMLTemplateElement).content);
-		});
-	}
-
-	#addTemplateEventTypes(content: DocumentFragment) {
-		content.querySelectorAll("*").forEach((el) => {
-			Array.from(el.attributes).forEach((attr) => {
-				if (attr.name.startsWith("data-on-") && attr.name.length > "data-on-".length) {
-					this.#addEventType(attr.name.substring("data-on-".length));
-				}
-			});
-			if (el.localName === "template") this.#addTemplateEventTypes((el as HTMLTemplateElement).content);
+		container.querySelectorAll<HTMLElement>("*").forEach((el) => {
+			if (isOwned(el)) this.#processElementBindings(el, options);
 		});
 	}
 
@@ -360,24 +402,23 @@ export class SprinculCore {
 		this.#unsubscribers.forEach((unsubscribe) => unsubscribe());
 		this.#unsubscribers.clear();
 
-		// Remove the root's data-on-* listeners, and keep a later #addEventType() from adding any
-		if (this.#listening) {
-			const root = this.instance.$el;
-			this.#eventTypes.forEach((type) => {
-				root.removeEventListener(type, this.#onBubble);
-				root.removeEventListener(type, this.#onCapture, true);
-			});
-		}
-		this.#listening = false;
-		this.#eventTypes.clear();
+		// Remove the data-on-* listeners
+		this.#recordsByElement.forEach((records) =>
+			records.forEach((record) => {
+				if (record.kind === "on" && record.attached) {
+					record.element.removeEventListener(record.type, record.listener);
+				}
+			}),
+		);
 		this.#bindings.clear();
-		this.#bindingsByElement.clear();
-		this.#bindingsByWire.clear();
+		this.#recordsByElement.clear();
+		this.#recordsByWire.clear();
 		this.#computed.clear();
 		this.#pendingUpdates.clear();
 
 		// Drop anything setupBindings() queued, in case destroy() ran while beforeInit was pending
 		this.#pendingInitialCallbacks = [];
+		this.#pendingListeners = [];
 		this.#frameCallbacks = [];
 	}
 
@@ -402,7 +443,13 @@ export class SprinculCore {
 				const key = propertyName.toLowerCase();
 				const callbackName = attr.value; // The callback to call when it changes
 
-				const record = this.#trackBinding(key, element, callbackName, options);
+				const record = this.#track({
+					kind: "bind",
+					prop: key,
+					element,
+					callback: callbackName,
+					...wiring(options),
+				});
 
 				// Re-invoking the callback here lets a callback that re-wires its own container recurse forever
 				if (!record) return;
@@ -452,108 +499,81 @@ export class SprinculCore {
 				return;
 			}
 
-			// data-on-* (data-on-click, etc.) is read when the event fires; the scan only learns its event type
+			// Handle data-on-* event attributes (data-on-click, etc.). Kept in the DOM so remounting can bind them again.
 			if (attr.name.startsWith("data-on-") && attr.name.length > "data-on-".length) {
-				this.#addEventType(attr.name.substring("data-on-".length));
-				if (typeof Reflect.get(this.instance, attr.value) !== "function")
-					this.#warnMissingHandler(attr.name, attr.value);
+				this.#bindListener(element, attr.name.substring("data-on-".length), attr.value, options);
 			}
 		});
 	}
 
-	#addEventType(type: string) {
-		if (this.#eventTypes.has(type)) return;
-		this.#eventTypes.add(type);
-		if (this.#listening) this.#listen(type);
-	}
-
-	#listen(type: string) {
-		this.instance.$el.addEventListener(type, this.#onBubble);
-		this.instance.$el.addEventListener(type, this.#onCapture, true);
-	}
-
-	/**
-	 * The element nearest the event's target with a data-on-<type> for it (the target or its closest such ancestor)
-	 * is the boundary: it handles the event, and elements further up in the same model don't. A match inside a
-	 * nested model is that model's, so the search carries on above it. Between models the event bubbles natively.
-	 */
-	#dispatch(event: Event) {
-		const root = this.instance.$el;
-		const attribute = `data-on-${event.type}`;
-		const target = event.target as Node | null;
-
-		for (let el = target?.nodeType === 1 ? (target as Element) : null; el; el = el.parentElement) {
-			if (el.hasAttribute(attribute)) {
-				const owner = el.closest("[data-model]")!;
-				if (owner === root) {
-					this.#callHandler(el as HTMLElement, attribute, event);
-					return;
-				}
-				// A nested model's match is its own, so carry on above that model
-				el = owner;
-			}
-			// A non-bubbling event only reaches its own target's handler
-			if (el === root || !event.bubbles) return;
-		}
-	}
-
-	#callHandler(element: HTMLElement, attribute: string, event: Event) {
-		const methodName = element.getAttribute(attribute)!;
-		const handler = Reflect.get(this.instance, methodName);
-		if (typeof handler !== "function") {
-			this.#warnMissingHandler(attribute, methodName);
+	#bindListener(element: HTMLElement, type: string, method: string, options: ProcessOptions) {
+		if (typeof Reflect.get(this.instance, method) !== "function") {
+			this.#warn(`Event handler method "${method}" not found for data-on-${type}.`);
 			return;
 		}
 
-		try {
-			handler.call(this.instance, element, event);
-		} catch (error) {
-			console.error(`Error in event handler "${methodName}" for event "${event.type}":`, error);
-		}
+		const listener: EventListener = (event) => {
+			try {
+				Reflect.get(this.instance, method).call(this.instance, element, event);
+			} catch (error) {
+				console.error(`Error in event handler "${method}" for event "${type}":`, error);
+			}
+		};
+		const record = this.#track({
+			kind: "on",
+			element,
+			type,
+			method,
+			listener,
+			attached: false,
+			...wiring(options),
+		});
+		if (!record) return;
+
+		// Queue until beforeInit finishes, so it can't fire against unseeded state
+		if (options.deferCallbacks) this.#pendingListeners.push(record);
+		else this.#attach(record);
 	}
 
-	#warnMissingHandler(attribute: string, methodName: string) {
-		const key = `${attribute}=${methodName}`;
-		if (this.#warnedHandlers.has(key)) return;
-		this.#warnedHandlers.add(key);
-		this.#warn(`Event handler method "${methodName}" not found for ${attribute}.`);
+	#attach(record: ListenerRecord) {
+		record.element.addEventListener(record.type, record.listener);
+		record.attached = true;
 	}
 
-	/** Returns the new record, or null if this element/callback pair was already tracked. */
-	#trackBinding(
-		prop: string,
-		element: HTMLElement,
-		callback: string,
-		{ wiredBy, wiredOutside }: ProcessOptions,
-	): BindingRecord | null {
-		let elementBindings = this.#bindingsByElement.get(element);
-		if (!elementBindings) {
-			elementBindings = new Set();
-			this.#bindingsByElement.set(element, elementBindings);
+	/** Tracks `record` and returns it, or returns null if its element already has the same binding or listener. */
+	#track<T extends TrackedRecord>(record: T): T | null {
+		let elementRecords = this.#recordsByElement.get(record.element);
+		if (!elementRecords) {
+			elementRecords = new Set();
+			this.#recordsByElement.set(record.element, elementRecords);
 		}
 
-		for (const existing of elementBindings) {
-			if (existing.prop === prop && existing.callback === callback) return null;
+		for (const existing of elementRecords) {
+			if (SprinculCore.#sameRecord(existing, record)) return null;
+		}
+		elementRecords.add(record);
+
+		if (record.kind === "bind") {
+			if (!this.#bindings.has(record.prop)) this.#bindings.set(record.prop, new Set());
+			this.#bindings.get(record.prop)!.add(record);
 		}
 
-		if (!this.#bindings.has(prop)) {
-			this.#bindings.set(prop, new Set());
-		}
-
-		const record: BindingRecord = { prop, element, callback, wiredBy, wiredOutside };
-		this.#bindings.get(prop)!.add(record);
-		elementBindings.add(record);
-
-		if (wiredBy) {
-			let wired = this.#bindingsByWire.get(wiredBy);
+		if (record.wiredBy) {
+			let wired = this.#recordsByWire.get(record.wiredBy);
 			if (!wired) {
 				wired = new Set();
-				this.#bindingsByWire.set(wiredBy, wired);
+				this.#recordsByWire.set(record.wiredBy, wired);
 			}
 			wired.add(record);
 		}
 
 		return record;
+	}
+
+	static #sameRecord(a: TrackedRecord, b: TrackedRecord): boolean {
+		if (a.kind === "bind" && b.kind === "bind") return a.prop === b.prop && a.callback === b.callback;
+		if (a.kind === "on" && b.kind === "on") return a.type === b.type && a.method === b.method;
+		return false;
 	}
 
 	#updateDependentElements(prop: string, updated?: Map<HTMLElement, Set<string>>) {

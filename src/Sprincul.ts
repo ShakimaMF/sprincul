@@ -381,6 +381,7 @@ export default class Sprincul {
 			Sprincul.#trackModelInstance(modelName, model);
 
 			defaults = core.setupBindings(element);
+			Sprincul.#watchDocument(element.ownerDocument);
 		} catch (e) {
 			// Leave no half-mounted element behind, or it could never be mounted again
 			Sprincul.#processedElements.delete(element);
@@ -702,6 +703,55 @@ export default class Sprincul {
 			Sprincul.#processedElements.delete(model.$el);
 			Sprincul.#untrackModelInstance(model);
 		}
+	}
+
+	/** One observer per document, started by its first model, handling the changes inside data-watch elements. */
+	static #watchObservers = new WeakMap<Document, MutationObserver>();
+
+	static #watchDocument(document: Document): void {
+		const view = document.defaultView;
+		if (!view || Sprincul.#watchObservers.has(document)) return;
+
+		const observer = new view.MutationObserver((records) => Sprincul.#applyWatched(records));
+		observer.observe(document, { childList: true, subtree: true });
+		Sprincul.#watchObservers.set(document, observer);
+	}
+
+	/**
+	 * Hands each change inside a data-watch element to the model owning that element. Every other change on the page,
+	 * and any change that only touches text, is dropped first.
+	 */
+	static #applyWatched(records: MutationRecord[]): void {
+		const changes = new Map<HTMLElement, { added: Set<Element>; removed: Set<Element> }>();
+		const isElement = (node: Node): node is Element => node.nodeType === 1;
+
+		for (const record of records) {
+			const target = record.target as Element;
+			const watched = target.nodeType === 1 ? target.closest<HTMLElement>("[data-watch]") : null;
+			if (!watched) continue;
+
+			const added = Array.from(record.addedNodes).filter(isElement);
+			const removed = Array.from(record.removedNodes).filter(isElement);
+			if (added.length === 0 && removed.length === 0) continue;
+
+			// A change inside a nested model is that model's, unless the nested model watches it itself
+			if (target.closest("[data-model]") !== watched.closest("[data-model]")) continue;
+
+			let change = changes.get(watched);
+			if (!change) {
+				change = { added: new Set(), removed: new Set() };
+				changes.set(watched, change);
+			}
+			added.forEach((node) => change.added.add(node));
+			removed.forEach((node) => change.removed.add(node));
+		}
+
+		changes.forEach(({ added, removed }, watched) => {
+			const root = watched.closest<HTMLElement>("[data-model]");
+			const model = root ? getInstance(root) : undefined;
+			const core = model ? getCore(model) : undefined;
+			core?.applyWatchedChanges(watched, added, removed);
+		});
 	}
 
 	static #restoreModelName(element: HTMLElement, previousModelName: string | undefined): void {

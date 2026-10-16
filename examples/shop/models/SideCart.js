@@ -3,8 +3,8 @@ import { Cart } from "../lib/cart.js";
 import { Pricing } from "../lib/pricing.js";
 
 /*
- * The slide-out cart. Its rows are cloned from a <template> and appended on every change to the cart or the
- * discount, and its totals are computed properties.
+ * The slide-out cart. Its rows are cloned from a <template> into a data-watch list on every change to the cart or
+ * the discount, which wires them, and its totals are computed properties.
  */
 export default class SideCart extends SprinculModel {
 	static options = { customElement: "side-cart" };
