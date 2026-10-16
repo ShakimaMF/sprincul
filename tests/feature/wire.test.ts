@@ -610,7 +610,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 		warnSpy.mockRestore();
 	});
 
-	describe("rewire()", () => {
+	describe("wire() on rebuilt content", () => {
 		function mountRows() {
 			const renders: string[] = [];
 
@@ -648,7 +648,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 
 			const [oldA] = Array.from(list.children) as HTMLElement[];
 			list.replaceChildren(...rows("c"));
-			instance.rewire(list);
+			instance.wire(list);
 			renders.length = 0;
 
 			instance.state.qty = 2;
@@ -667,7 +667,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 			await waitForDomUpdate();
 
 			list.replaceChildren(...rows("b"));
-			instance.rewire(list);
+			instance.wire(list);
 			renders.length = 0;
 
 			instance.state.qty = 2;
@@ -682,7 +682,7 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 			fragment.append(...rows("a"));
 			instance.wire(fragment);
 
-			instance.rewire(list);
+			instance.wire(list);
 			list.append(fragment);
 			await waitForDomUpdate();
 			renders.length = 0;
@@ -695,20 +695,13 @@ describe("Sprincul - Wiring Dynamic Content", () => {
 
 		test("leaves the model's own markup bound", async () => {
 			const { instance, renders } = mountRows();
-			instance.rewire(instance.$el);
+			instance.wire(instance.$el);
 			renders.length = 0;
 
 			instance.state.qty = 2;
 			await waitForDomUpdate();
 
 			expect(renders).toEqual(["total"]);
-		});
-
-		test("throws if called before the model's core is available", () => {
-			const el = document.createElement("div");
-			const model = new SprinculModel(el);
-
-			expect(() => model.rewire(el)).toThrow("[Sprincul] rewire() called before core was available");
 		});
 	});
 

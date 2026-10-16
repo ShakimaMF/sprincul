@@ -62,8 +62,9 @@ export default class SprinculModel {
 	beforeDestroy?(): void | Promise<void>;
 
 	/**
-	 * Bind the data-bind-* attributes in content added to this model, and register any data-on-* event types in it
-	 * that weren't present when the model was initialized.
+	 * Bind the data-bind-* and data-on-* attributes in content added to this model. Calling it again on content
+	 * you've rebuilt binds what's new and releases what's gone. A `data-watch` element does this on its own whenever
+	 * its contents change.
 	 *
 	 * Content not appended yet (a `DocumentFragment` or detached element) can be wired first and appended after:
 	 * its binding callbacks run in the next frame, once it's usually on the page.
@@ -74,22 +75,6 @@ export default class SprinculModel {
 	 */
 	wire(element: HTMLElement | DocumentFragment): void {
 		this.#requireCore("wire").processAddedElement(element);
-	}
-
-	/**
-	 * Release what wire() registered for an element, then wire what it holds now. Call it after rebuilding
-	 * content you wired, on the same element you passed to wire().
-	 *
-	 * @example
-	 * list.replaceChildren(...rows);
-	 * this.rewire(list);
-	 *
-	 * @param {HTMLElement} element - The element you wired before and have since rebuilt.
-	 * @return {void} Does not return a value.
-	 * @throws {Error} If the method is called before the core is available.
-	 */
-	rewire(element: HTMLElement): void {
-		this.#requireCore("rewire").rewireElement(element);
 	}
 
 	/**
