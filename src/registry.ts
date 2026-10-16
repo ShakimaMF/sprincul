@@ -63,7 +63,7 @@ let modelRootSelector = "[data-model]";
 
 export function addModelTag(tag: string): void {
 	// Custom element names can hold characters a selector can't take raw, such as "."
-	modelRootSelector += `, ${tag.replace(/[^\w\u00A0-\uFFFF-]/g, "\\$&")}`;
+	modelRootSelector += `, ${tag.replace(/[^\w\u00A0-\u{10FFFF}-]/gu, "\\$&")}`;
 }
 
 /** The nearest model root at or above `element`, mounted or not. */
