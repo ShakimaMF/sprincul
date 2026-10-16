@@ -10,7 +10,17 @@ import type {
 	SprinculMountOptions,
 	SprinculOptions,
 } from "./types";
-import { abortSignal, deleteCore, deleteInstance, getCore, getInstance, setCore, setInstance } from "./registry";
+import {
+	abortSignal,
+	addModelTag,
+	closestModelRoot,
+	deleteCore,
+	deleteInstance,
+	getCore,
+	getInstance,
+	setCore,
+	setInstance,
+} from "./registry";
 
 /**
  * @class Sprincul
@@ -42,7 +52,7 @@ export default class Sprincul {
 	/** Custom elements whose unmount is still settling, so reconnecting waits for it. */
 	static #elementTeardowns = new WeakMap<HTMLElement, Promise<void>>();
 	/** Page-wide defaults from setOption(), below a call's options and a model's `static options`. */
-	static #options: SprinculOptions = { devMode: false, processNativeEvents: true };
+	static #options: SprinculOptions = { devMode: false };
 
 	static store = {
 		get<T = any>(key: string): T | undefined {
@@ -173,6 +183,7 @@ export default class Sprincul {
 			return;
 		}
 		Sprincul.#customElements.set(name, modelName);
+		addModelTag(name);
 	}
 
 	static #isCustomElement(element: Element): boolean {
@@ -305,11 +316,7 @@ export default class Sprincul {
 			}
 
 			try {
-				const info = Sprincul.processModelElement(
-					element as HTMLElement,
-					options?.devMode,
-					options?.processNativeEvents,
-				);
+				const info = Sprincul.processModelElement(element as HTMLElement, options?.devMode);
 				if (info) modelInfos.push(info);
 			} catch (e) {
 				console.error(`[Sprincul] Failed to process model element:`, e);
@@ -346,15 +353,10 @@ export default class Sprincul {
 	 *
 	 * @param {HTMLElement} element
 	 * @param devModeOption - See `SprinculOptions`; omitted, it falls back like any other option
-	 * @param processNativeEventsOption - See `SprinculOptions`; omitted, it falls back like any other option
 	 *
 	 * @returns The model info, or `null` if the element couldn't be processed
 	 */
-	static processModelElement(
-		element: HTMLElement,
-		devModeOption?: boolean,
-		processNativeEventsOption?: boolean,
-	): SprinculModelInfo | null {
+	static processModelElement(element: HTMLElement, devModeOption?: boolean): SprinculModelInfo | null {
 		const modelName = element.dataset.model;
 		if (!modelName) {
 			console.warn('[Sprincul] Element is missing a "data-model" attribute. Skipping.');
@@ -368,7 +370,6 @@ export default class Sprincul {
 		}
 
 		const devMode = Sprincul.#option("devMode", ModelClass, devModeOption);
-		const processNativeEvents = Sprincul.#option("processNativeEvents", ModelClass, processNativeEventsOption);
 
 		if (Sprincul.#processedElements.has(element)) {
 			if (devMode && Sprincul.#tearingDown(element)) {
@@ -386,11 +387,12 @@ export default class Sprincul {
 		let defaults: BoundDefaults;
 		try {
 			model = new ModelClass(element);
-			core = new SprinculCore(model, devMode, processNativeEvents);
+			core = new SprinculCore(model, devMode);
 			setCore(model, core);
 			Sprincul.#trackModelInstance(modelName, model);
 
 			defaults = core.setupBindings(element);
+			Sprincul.#watchDocument(element.ownerDocument);
 		} catch (e) {
 			// Leave no half-mounted element behind, or it could never be mounted again
 			Sprincul.#processedElements.delete(element);
@@ -495,7 +497,7 @@ export default class Sprincul {
 
 		let info: SprinculModelInfo | null;
 		try {
-			info = Sprincul.processModelElement(element, options?.devMode, options?.processNativeEvents);
+			info = Sprincul.processModelElement(element, options?.devMode);
 		} catch (e) {
 			Sprincul.#restoreModelName(element, previousModelName);
 			throw e;
@@ -712,6 +714,55 @@ export default class Sprincul {
 			Sprincul.#processedElements.delete(model.$el);
 			Sprincul.#untrackModelInstance(model);
 		}
+	}
+
+	/** One observer per document, started by its first model, handling the changes inside data-watch elements. */
+	static #watchObservers = new WeakMap<Document, MutationObserver>();
+
+	static #watchDocument(document: Document): void {
+		const view = document.defaultView;
+		if (!view || Sprincul.#watchObservers.has(document)) return;
+
+		const observer = new view.MutationObserver((records) => Sprincul.#applyWatched(records));
+		observer.observe(document, { childList: true, subtree: true });
+		Sprincul.#watchObservers.set(document, observer);
+	}
+
+	/**
+	 * Hands each change inside a data-watch element to the model owning that element. Every other change on the page,
+	 * and any change that only touches text, is dropped first.
+	 */
+	static #applyWatched(records: MutationRecord[]): void {
+		const changes = new Map<HTMLElement, { added: Set<Element>; removed: Set<Element> }>();
+		const isElement = (node: Node): node is Element => node.nodeType === 1;
+
+		for (const record of records) {
+			const target = record.target as Element;
+			const watched = target.nodeType === 1 ? target.closest<HTMLElement>("[data-watch]") : null;
+			if (!watched) continue;
+
+			const added = Array.from(record.addedNodes).filter(isElement);
+			const removed = Array.from(record.removedNodes).filter(isElement);
+			if (added.length === 0 && removed.length === 0) continue;
+
+			// A change inside a nested model is that model's, unless the nested model watches it itself
+			if (closestModelRoot(target) !== closestModelRoot(watched)) continue;
+
+			let change = changes.get(watched);
+			if (!change) {
+				change = { added: new Set(), removed: new Set() };
+				changes.set(watched, change);
+			}
+			added.forEach((node) => change.added.add(node));
+			removed.forEach((node) => change.removed.add(node));
+		}
+
+		changes.forEach(({ added, removed }, watched) => {
+			const root = closestModelRoot(watched);
+			const model = root ? getInstance(root) : undefined;
+			const core = model ? getCore(model) : undefined;
+			core?.applyWatchedChanges(watched, added, removed);
+		});
 	}
 
 	static #restoreModelName(element: HTMLElement, previousModelName: string | undefined): void {

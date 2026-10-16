@@ -33,10 +33,12 @@ export default class SprinculModel {
      */
     beforeDestroy?(): void | Promise<void>;
     /**
-     * Bind the data-bind-* attributes and on* handlers in content added to this model.
+     * Bind the data-bind-* and data-on-* attributes in content added to this model. Calling it again on content
+     * you've rebuilt binds what's new and releases what's gone. A `data-watch` element does this on its own whenever
+     * its contents change.
      *
      * Content not appended yet (a `DocumentFragment` or detached element) can be wired first and appended after:
-     * its listeners attach now and its binding callbacks run in the next frame, once it's usually on the page.
+     * its binding callbacks run in the next frame, once it's usually on the page.
      *
      * @param {HTMLElement | DocumentFragment} element - The content to bind, and its descendants.
      * @return {void} Does not return a value.
@@ -44,13 +46,13 @@ export default class SprinculModel {
      */
     wire(element: HTMLElement | DocumentFragment): void;
     /**
-     * Release what wire() registered within an element and its descendants.
-     * Call this before discarding content a model rebuilds on every render.
+     * Release what wire() registered for an element, including content since removed from it, and anything wired
+     * inside it. Call this when you're done with wired content.
      *
      * Bindings from the model's own server-rendered markup are left alone, so a binding callback
      * can safely unwire the container it was handed.
      *
-     * @param {HTMLElement} element - The element whose wired content to release. Call this before detaching it.
+     * @param {HTMLElement} element - The element whose wired content to release.
      * @return {void} Does not return a value.
      * @throws {Error} If the method is called before the core is available.
      */

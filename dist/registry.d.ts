@@ -8,3 +8,7 @@ export declare function setInstance(element: HTMLElement, model: SprinculModel):
 export declare function deleteInstance(model: SprinculModel): void;
 export declare function getSignal(model: SprinculModel): AbortSignal;
 export declare function abortSignal(model: SprinculModel): void;
+export declare function addModelTag(tag: string): void;
+/** The nearest model root at or above `element`, mounted or not. */
+export declare function closestModelRoot(element: Element | null | undefined): HTMLElement | null;
+export declare function isModelRoot(element: Element): boolean;

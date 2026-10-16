@@ -2,9 +2,12 @@
 import { expect, test, describe } from "bun:test";
 import { html } from "../helpers.ts";
 
-/** Forces garbage collection until `ref` is released, or gives up. */
+/**
+ * Forces garbage collection until `ref` is released, or gives up. Native objects such as AbortSignal let go of
+ * their listeners only once they're collected themselves, so a model can take several passes to be released.
+ */
 async function isCollected(ref: WeakRef<object>): Promise<boolean> {
-	for (let attempt = 0; attempt < 10; attempt++) {
+	for (let attempt = 0; attempt < 30; attempt++) {
 		Bun.gc(true);
 		await new Promise((resolve) => setTimeout(resolve, 0));
 		if (ref.deref() === undefined) return true;

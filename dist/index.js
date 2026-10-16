@@ -257,28 +257,77 @@ var map = (initial = {}) => {
   };
   return $map;
 };
+// src/registry.ts
+var cores = new WeakMap;
+function getCore(model) {
+  return cores.get(model);
+}
+function setCore(model, core) {
+  cores.set(model, core);
+}
+function deleteCore(model) {
+  cores.delete(model);
+}
+var instances = new WeakMap;
+function getInstance(element) {
+  return instances.get(element);
+}
+function setInstance(element, model) {
+  instances.set(element, model);
+}
+function deleteInstance(model) {
+  if (instances.get(model.$el) === model)
+    instances.delete(model.$el);
+}
+var controllers = new WeakMap;
+var abortedUnread = new WeakSet;
+function getSignal(model) {
+  let controller = controllers.get(model);
+  if (!controller) {
+    controller = new AbortController;
+    controllers.set(model, controller);
+    if (abortedUnread.has(model))
+      controller.abort();
+  }
+  return controller.signal;
+}
+function abortSignal(model) {
+  const controller = controllers.get(model);
+  if (controller)
+    return controller.abort();
+  abortedUnread.add(model);
+}
+var modelRootSelector = "[data-model]";
+function addModelTag(tag) {
+  modelRootSelector += `, ${tag.replace(/[^\w\u00A0-\u{10FFFF}-]/gu, "\\$&")}`;
+}
+function closestModelRoot(element) {
+  return element?.closest(modelRootSelector) ?? null;
+}
+function isModelRoot(element) {
+  return element.matches(modelRootSelector);
+}
+
 // src/SprinculCore.ts
+var wiring = ({ wiredBy, wiredOutside }) => ({ wiredBy, wiredOutside });
+
 class SprinculCore {
   instance;
   devMode;
-  processNativeEvents;
   #bindings = new Map;
-  #bindingsByElement = new Map;
+  #recordsByElement = new Map;
+  #recordsByWire = new Map;
   #computed = new Map;
-  #domListeners = new Set;
-  #listenerKeys = new WeakMap;
   #unsubscribers = new Set;
   #pendingUpdates = new Set;
   #updateScheduled = false;
   #pendingInitialCallbacks = [];
-  #frameCallbacks = [];
   #pendingListeners = [];
+  #frameCallbacks = [];
   #isBrowser;
-  static #nativeEventsWarned = false;
-  constructor(instance, devMode = false, processNativeEvents = true) {
+  constructor(instance, devMode = false) {
     this.instance = instance;
     this.devMode = devMode;
-    this.processNativeEvents = processNativeEvents;
     this.#isBrowser = typeof window !== "undefined" && typeof document !== "undefined";
   }
   static createStateProxy(stateStore, getCoreRef) {
@@ -343,49 +392,123 @@ class SprinculCore {
   setupBindings(container) {
     const defaults = {};
     this.#processTree(container, { defaults, deferCallbacks: true });
-    return defaults;
+    return SprinculCore.#matchAnyCase(defaults);
+  }
+  static #matchAnyCase(defaults) {
+    const resolve = (prop) => {
+      if (typeof prop !== "string" || Object.hasOwn(defaults, prop))
+        return prop;
+      const folded = prop.toLowerCase();
+      return Object.keys(defaults).find((name) => name.toLowerCase() === folded) ?? prop;
+    };
+    return new Proxy(defaults, {
+      get: (target, prop) => Reflect.get(target, resolve(prop)),
+      has: (target, prop) => Reflect.has(target, resolve(prop)),
+      getOwnPropertyDescriptor: (target, prop) => Reflect.getOwnPropertyDescriptor(target, resolve(prop))
+    });
   }
   processAddedElement(content) {
     if (this.instance.$el.contains(content)) {
-      this.#processTree(content, { deferCallbacks: false, viaWire: true });
+      this.#releaseRecords(this.#goneFrom(content));
+      this.#processTree(content, { deferCallbacks: false, wiredBy: content });
       return;
     }
     if (content.isConnected) {
       this.#warn("wire() was given content on the page outside this model, so nothing was bound.");
       return;
     }
-    this.#processTree(content, { deferCallbacks: false, deferToFrame: this.#isBrowser, viaWire: true });
+    this.#processTree(content, {
+      deferCallbacks: false,
+      deferToFrame: this.#isBrowser,
+      wiredBy: content,
+      wiredOutside: true
+    });
+  }
+  #goneFrom(content) {
+    const gone = new Set;
+    this.#recordsByWire.get(content)?.forEach((record) => {
+      if (!content.contains(record.element))
+        gone.add(record);
+    });
+    this.#leftModel().forEach((record) => gone.add(record));
+    return gone;
+  }
+  #leftModel() {
+    const pending = new Set(this.#frameCallbacks);
+    const left = [];
+    this.#recordsByElement.forEach((records, node) => {
+      if (this.instance.$el.contains(node))
+        return;
+      records.forEach((record) => {
+        if (record.wiredOutside && !pending.has(record))
+          left.push(record);
+      });
+    });
+    return left;
   }
   unwireElement(element) {
-    const isInScope = (candidate) => element.contains(candidate);
-    Array.from(this.#bindingsByElement.keys()).forEach((node) => {
-      if (!isInScope(node))
+    const released = new Set(this.#recordsByWire.get(element));
+    this.#recordsByElement.forEach((records, node) => {
+      if (!element.contains(node))
         return;
-      const elementBindings = this.#bindingsByElement.get(node);
-      elementBindings.forEach((record) => {
-        if (!record.viaWire)
-          return;
-        const bindings = this.#bindings.get(record.prop);
-        if (bindings) {
-          bindings.delete(record);
-          if (bindings.size === 0)
-            this.#bindings.delete(record.prop);
-        }
-        elementBindings.delete(record);
+      records.forEach((record) => {
+        if (record.wiredBy)
+          released.add(record);
       });
-      if (elementBindings.size === 0)
-        this.#bindingsByElement.delete(node);
     });
-    this.#domListeners.forEach((record) => {
-      if (!isInScope(record.element))
+    this.#leftModel().forEach((record) => released.add(record));
+    this.#releaseRecords(released);
+  }
+  applyWatchedChanges(watched, added, removed) {
+    if (removed.size > 0) {
+      const released = new Set;
+      this.#recordsByElement.forEach((records, element) => {
+        if (watched.contains(element))
+          return;
+        for (let node = element;node; node = node.parentElement) {
+          if (!removed.has(node))
+            continue;
+          records.forEach((record) => released.add(record));
+          return;
+        }
+      });
+      this.#releaseRecords(released);
+    }
+    added.forEach((element) => {
+      if (element.parentElement && added.has(element.parentElement))
         return;
-      record.element.removeEventListener(record.type, record.listener, record.options);
-      this.#domListeners.delete(record);
-      this.#listenerKeys.delete(record.element);
+      if (!watched.contains(element))
+        return;
+      this.#processTree(element, { deferCallbacks: false, wiredBy: watched });
     });
-    this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter((binding) => !isInScope(binding.element));
-    this.#pendingListeners = this.#pendingListeners.filter((listener) => !isInScope(listener.element));
-    this.#frameCallbacks = this.#frameCallbacks.filter((binding) => !isInScope(binding.element));
+  }
+  #releaseRecords(records) {
+    if (records.size === 0)
+      return;
+    records.forEach((record) => this.#release(record));
+    this.#pendingInitialCallbacks = this.#pendingInitialCallbacks.filter((record) => !records.has(record));
+    this.#pendingListeners = this.#pendingListeners.filter((record) => !records.has(record));
+    this.#frameCallbacks = this.#frameCallbacks.filter((record) => !records.has(record));
+  }
+  #release(record) {
+    if (record.kind === "bind") {
+      const bindings = this.#bindings.get(record.prop);
+      bindings?.delete(record);
+      if (bindings?.size === 0)
+        this.#bindings.delete(record.prop);
+    } else if (record.attached) {
+      record.element.removeEventListener(record.type, record.listener);
+    }
+    const elementRecords = this.#recordsByElement.get(record.element);
+    elementRecords?.delete(record);
+    if (elementRecords?.size === 0)
+      this.#recordsByElement.delete(record.element);
+    if (!record.wiredBy)
+      return;
+    const wired = this.#recordsByWire.get(record.wiredBy);
+    wired?.delete(record);
+    if (wired?.size === 0)
+      this.#recordsByWire.delete(record.wiredBy);
   }
   runQueuedInitialCallbacks() {
     const queuedCallbacks = this.#pendingInitialCallbacks;
@@ -394,13 +517,16 @@ class SprinculCore {
     queuedCallbacks.forEach((binding) => this.#updateElement(binding));
     const queuedListeners = this.#pendingListeners;
     this.#pendingListeners = [];
-    queuedListeners.forEach(({ element, attributeName, eventName, methodName }) => this.#attachListener(element, attributeName, eventName, methodName));
+    queuedListeners.forEach((record) => this.#attach(record));
   }
   #processTree(container, options) {
     const owner = this.instance.$el.contains(container) ? this.instance.$el : null;
-    const isOwned = (element) => element.closest("[data-model]") === owner;
+    const isOwned = (element) => closestModelRoot(element) === owner;
     if (container instanceof HTMLElement && isOwned(container)) {
       this.#processElementBindings(container, options);
+      if (container === this.instance.$el && container.hasAttribute("data-watch")) {
+        this.#warn("data-watch on a model root watches the whole model; put it on the element whose contents change.");
+      }
     }
     container.querySelectorAll("*").forEach((el) => {
       if (isOwned(el))
@@ -435,7 +561,7 @@ class SprinculCore {
   scheduleUpdate(key) {
     if (!this.#isBrowser)
       return;
-    this.#pendingUpdates.add(key);
+    this.#pendingUpdates.add(key.toLowerCase());
     this.#scheduleFrame();
   }
   #scheduleFrame() {
@@ -458,13 +584,14 @@ class SprinculCore {
   destroy() {
     this.#unsubscribers.forEach((unsubscribe) => unsubscribe());
     this.#unsubscribers.clear();
-    this.#domListeners.forEach(({ element, type, listener, options }) => {
-      element.removeEventListener(type, listener, options);
-    });
-    this.#domListeners.clear();
-    this.#listenerKeys = new WeakMap;
+    this.#recordsByElement.forEach((records) => records.forEach((record) => {
+      if (record.kind === "on" && record.attached) {
+        record.element.removeEventListener(record.type, record.listener);
+      }
+    }));
     this.#bindings.clear();
-    this.#bindingsByElement.clear();
+    this.#recordsByElement.clear();
+    this.#recordsByWire.clear();
     this.#computed.clear();
     this.#pendingUpdates.clear();
     this.#pendingInitialCallbacks = [];
@@ -481,9 +608,16 @@ class SprinculCore {
       }
       if (attr.name.startsWith("data-bind-")) {
         const propertyName = attr.name.substring("data-bind-".length).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
+        const key = propertyName.toLowerCase();
         const callbackName = attr.value;
-        const alreadyBound = this.#trackBinding(propertyName, element, callbackName, options.viaWire === true);
-        if (alreadyBound)
+        const record = this.#track({
+          kind: "bind",
+          prop: key,
+          element,
+          callback: callbackName,
+          ...wiring(options)
+        });
+        if (!record)
           return;
         if (options.defaults && !Object.prototype.hasOwnProperty.call(options.defaults, propertyName)) {
           const isCheckable = element instanceof HTMLInputElement && (element.type === "checkbox" || element.type === "radio");
@@ -503,12 +637,6 @@ class SprinculCore {
           this.#warn(`Binding callback "${callbackName}" not found for ${attr.name}.`);
           return;
         }
-        const record = {
-          prop: propertyName,
-          element,
-          callback: callbackName,
-          viaWire: options.viaWire === true
-        };
         if (options.deferCallbacks) {
           this.#pendingInitialCallbacks.push(record);
           return;
@@ -526,82 +654,73 @@ class SprinculCore {
         return;
       }
       if (attr.name.startsWith("data-on-") && attr.name.length > "data-on-".length) {
-        this.#queueListener(element, attr.name, attr.name.substring("data-on-".length), attr.value, options);
-        return;
-      }
-      if (this.processNativeEvents && this.#isEventAttribute(element, attr.name)) {
-        const eventName = attr.name.substring(2);
-        element.removeAttribute(attr.name);
-        if (element.hasAttribute(`data-on-${eventName}`)) {
-          this.#warn(`Element has both ${attr.name} and data-on-${eventName}; using data-on-${eventName}.`);
-          return;
-        }
-        if (typeof Reflect.get(this.instance, attr.value) === "function") {
-          this.#warnNativeEvent(attr.name, eventName, attr.value);
-        }
-        this.#queueListener(element, attr.name, eventName, attr.value, options);
+        this.#bindListener(element, attr.name.substring("data-on-".length), attr.value, options);
       }
     });
   }
-  #warnNativeEvent(attributeName, eventName, methodName) {
-    if (SprinculCore.#nativeEventsWarned)
-      return;
-    SprinculCore.#nativeEventsWarned = true;
-    console.warn(`[Sprincul] Binding native event attributes such as ${attributeName}="${methodName}" is deprecated and will stop in a future release; use data-on-${eventName}="${methodName}" instead. To opt in early, call Sprincul.setOption("processNativeEvents", false).`);
-  }
-  #queueListener(element, attributeName, eventName, methodName, options) {
-    if (options.deferCallbacks) {
-      this.#pendingListeners.push({ element, attributeName, eventName, methodName });
+  #bindListener(element, type, method, options) {
+    if (typeof Reflect.get(this.instance, method) !== "function") {
+      this.#warn(`Event handler method "${method}" not found for data-on-${type}.`);
       return;
     }
-    this.#attachListener(element, attributeName, eventName, methodName);
-  }
-  #isEventAttribute(element, attributeName) {
-    if (!attributeName.startsWith("on") || attributeName.length <= 2)
-      return false;
-    return attributeName in element || this.#isBrowser && attributeName in window;
-  }
-  #attachListener(element, attributeName, eventName, methodName) {
-    const eventFn = Reflect.get(this.instance, methodName);
-    if (typeof eventFn !== "function") {
-      this.#warn(`Event handler method "${methodName}" not found for ${attributeName}.`);
-      return;
-    }
-    const key = `${eventName}:${methodName}`;
-    let keys = this.#listenerKeys.get(element);
-    if (!keys) {
-      keys = new Set;
-      this.#listenerKeys.set(element, keys);
-    }
-    if (keys.has(key))
-      return;
-    keys.add(key);
-    const listener = (e) => {
+    const listener = (event) => {
       try {
-        eventFn.call(this.instance, e);
+        Reflect.get(this.instance, method).call(this.instance, element, event);
       } catch (error) {
-        console.error(`Error in event handler "${methodName}" for event "${eventName}":`, error);
+        console.error(`Error in event handler "${method}" for event "${type}":`, error);
       }
     };
-    element.addEventListener(eventName, listener);
-    this.#domListeners.add({ element, type: eventName, listener });
+    const record = this.#track({
+      kind: "on",
+      element,
+      type,
+      method,
+      listener,
+      attached: false,
+      ...wiring(options)
+    });
+    if (!record)
+      return;
+    if (options.deferCallbacks)
+      this.#pendingListeners.push(record);
+    else
+      this.#attach(record);
   }
-  #trackBinding(prop, element, callback, viaWire) {
-    let elementBindings = this.#bindingsByElement.get(element);
-    if (!elementBindings) {
-      elementBindings = new Set;
-      this.#bindingsByElement.set(element, elementBindings);
+  #attach(record) {
+    record.element.addEventListener(record.type, record.listener);
+    record.attached = true;
+  }
+  #track(record) {
+    let elementRecords = this.#recordsByElement.get(record.element);
+    if (!elementRecords) {
+      elementRecords = new Set;
+      this.#recordsByElement.set(record.element, elementRecords);
     }
-    for (const existing of elementBindings) {
-      if (existing.prop === prop && existing.callback === callback)
-        return true;
+    for (const existing of elementRecords) {
+      if (SprinculCore.#sameRecord(existing, record))
+        return null;
     }
-    if (!this.#bindings.has(prop)) {
-      this.#bindings.set(prop, new Set);
+    elementRecords.add(record);
+    if (record.kind === "bind") {
+      if (!this.#bindings.has(record.prop))
+        this.#bindings.set(record.prop, new Set);
+      this.#bindings.get(record.prop).add(record);
     }
-    const record = { prop, element, callback, viaWire };
-    this.#bindings.get(prop).add(record);
-    elementBindings.add(record);
+    if (record.wiredBy) {
+      let wired = this.#recordsByWire.get(record.wiredBy);
+      if (!wired) {
+        wired = new Set;
+        this.#recordsByWire.set(record.wiredBy, wired);
+      }
+      wired.add(record);
+    }
+    return record;
+  }
+  static #sameRecord(a, b) {
+    if (a.kind === "bind" && b.kind === "bind")
+      return a.prop === b.prop && a.callback === b.callback;
+    if (a.kind === "on" && b.kind === "on")
+      return a.type === b.type && a.method === b.method;
     return false;
   }
   #updateDependentElements(prop, updated) {
@@ -645,47 +764,6 @@ class SprinculCore {
   }
 }
 
-// src/registry.ts
-var cores = new WeakMap;
-function getCore(model) {
-  return cores.get(model);
-}
-function setCore(model, core) {
-  cores.set(model, core);
-}
-function deleteCore(model) {
-  cores.delete(model);
-}
-var instances = new WeakMap;
-function getInstance(element) {
-  return instances.get(element);
-}
-function setInstance(element, model) {
-  instances.set(element, model);
-}
-function deleteInstance(model) {
-  if (instances.get(model.$el) === model)
-    instances.delete(model.$el);
-}
-var controllers = new WeakMap;
-var abortedUnread = new WeakSet;
-function getSignal(model) {
-  let controller = controllers.get(model);
-  if (!controller) {
-    controller = new AbortController;
-    controllers.set(model, controller);
-    if (abortedUnread.has(model))
-      controller.abort();
-  }
-  return controller.signal;
-}
-function abortSignal(model) {
-  const controller = controllers.get(model);
-  if (controller)
-    return controller.abort();
-  abortedUnread.add(model);
-}
-
 // src/SprinculModel.ts
 var MALFORMED = Symbol("malformed");
 
@@ -709,18 +787,17 @@ class SprinculModel {
     this.state = SprinculCore.createStateProxy(this.#state, () => this.#core || getCore(this));
   }
   wire(element) {
-    const core = this.#core || getCore(this);
-    if (!core) {
-      throw new Error(`[Sprincul] wire() called before core was available. Call it from beforeInit() or later instead.`);
-    }
-    core.processAddedElement(element);
+    this.#requireCore("wire").processAddedElement(element);
   }
   unwire(element) {
+    this.#requireCore("unwire").unwireElement(element);
+  }
+  #requireCore(method) {
     const core = this.#core || getCore(this);
     if (!core) {
-      throw new Error(`[Sprincul] unwire() called before core was available. Call it from beforeInit() or later instead.`);
+      throw new Error(`[Sprincul] ${method}() called before core was available. Call it from beforeInit() or later instead.`);
     }
-    core.unwireElement(element);
+    return core;
   }
   $ref(name) {
     return this.$refs(name)[0] ?? null;
@@ -739,7 +816,7 @@ class SprinculModel {
     return element ? getInstance(element) ?? null : null;
   }
   $parent() {
-    const element = this.$el.parentElement?.closest("[data-model]");
+    const element = closestModelRoot(this.$el.parentElement);
     return element ? getInstance(element) ?? null : null;
   }
   $children(name) {
@@ -784,8 +861,7 @@ class SprinculModel {
     }
   }
   static #ownerOf(element) {
-    const scope = element.hasAttribute("data-model") ? element.parentElement : element;
-    return scope?.closest("[data-model]") ?? null;
+    return closestModelRoot(isModelRoot(element) ? element.parentElement : element);
   }
   get $signal() {
     return getSignal(this);
@@ -793,6 +869,9 @@ class SprinculModel {
   $emit(type, detail, options) {
     if (`on${type}` in this.$el) {
       (this.#core || getCore(this))?.warn(`$emit("${type}") uses a native event name, so it mixes with the native events bubbling through the same elements.`);
+    }
+    if (/[A-Z]/.test(type)) {
+      (this.#core || getCore(this))?.warn(`$emit("${type}") can't be heard by data-on-* because HTML lowercases attribute names; use a lowercase name such as "${type.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}".`);
     }
     const event = new CustomEvent(type, { bubbles: true, ...options, detail });
     this.$el.dispatchEvent(event);
@@ -847,7 +926,7 @@ class Sprincul {
   static #disconnectedElements = new Set;
   static #unmountScheduled = false;
   static #elementTeardowns = new WeakMap;
-  static #options = { devMode: false, processNativeEvents: true };
+  static #options = { devMode: false };
   static store = {
     get(key) {
       const store = Sprincul.#globalStores.get(key);
@@ -937,6 +1016,7 @@ class Sprincul {
       return;
     }
     Sprincul.#customElements.set(name, modelName);
+    addModelTag(name);
   }
   static #isCustomElement(element) {
     return Sprincul.#customElements.has(element.localName);
@@ -1035,7 +1115,7 @@ class Sprincul {
         return;
       }
       try {
-        const info = Sprincul.processModelElement(element, options?.devMode, options?.processNativeEvents);
+        const info = Sprincul.processModelElement(element, options?.devMode);
         if (info)
           modelInfos.push(info);
       } catch (e) {
@@ -1054,7 +1134,7 @@ class Sprincul {
       }
     }
   }
-  static processModelElement(element, devModeOption, processNativeEventsOption) {
+  static processModelElement(element, devModeOption) {
     const modelName = element.dataset.model;
     if (!modelName) {
       console.warn('[Sprincul] Element is missing a "data-model" attribute. Skipping.');
@@ -1066,7 +1146,6 @@ class Sprincul {
       return null;
     }
     const devMode = Sprincul.#option("devMode", ModelClass, devModeOption);
-    const processNativeEvents = Sprincul.#option("processNativeEvents", ModelClass, processNativeEventsOption);
     if (Sprincul.#processedElements.has(element)) {
       if (devMode && Sprincul.#tearingDown(element)) {
         console.warn(`[Sprincul] Skipped "${modelName}": the model on this element is still running an async beforeDestroy(). Await unmount() before mounting it again.`);
@@ -1079,10 +1158,11 @@ class Sprincul {
     let defaults;
     try {
       model = new ModelClass(element);
-      core = new SprinculCore(model, devMode, processNativeEvents);
+      core = new SprinculCore(model, devMode);
       setCore(model, core);
       Sprincul.#trackModelInstance(modelName, model);
       defaults = core.setupBindings(element);
+      Sprincul.#watchDocument(element.ownerDocument);
     } catch (e) {
       Sprincul.#processedElements.delete(element);
       if (model) {
@@ -1154,7 +1234,7 @@ class Sprincul {
     element.dataset.model = modelName;
     let info;
     try {
-      info = Sprincul.processModelElement(element, options?.devMode, options?.processNativeEvents);
+      info = Sprincul.processModelElement(element, options?.devMode);
     } catch (e) {
       Sprincul.#restoreModelName(element, previousModelName);
       throw e;
@@ -1287,6 +1367,44 @@ class Sprincul {
       Sprincul.#untrackModelInstance(model);
     }
   }
+  static #watchObservers = new WeakMap;
+  static #watchDocument(document2) {
+    const view = document2.defaultView;
+    if (!view || Sprincul.#watchObservers.has(document2))
+      return;
+    const observer = new view.MutationObserver((records) => Sprincul.#applyWatched(records));
+    observer.observe(document2, { childList: true, subtree: true });
+    Sprincul.#watchObservers.set(document2, observer);
+  }
+  static #applyWatched(records) {
+    const changes = new Map;
+    const isElement = (node) => node.nodeType === 1;
+    for (const record of records) {
+      const target = record.target;
+      const watched = target.nodeType === 1 ? target.closest("[data-watch]") : null;
+      if (!watched)
+        continue;
+      const added = Array.from(record.addedNodes).filter(isElement);
+      const removed = Array.from(record.removedNodes).filter(isElement);
+      if (added.length === 0 && removed.length === 0)
+        continue;
+      if (closestModelRoot(target) !== closestModelRoot(watched))
+        continue;
+      let change = changes.get(watched);
+      if (!change) {
+        change = { added: new Set, removed: new Set };
+        changes.set(watched, change);
+      }
+      added.forEach((node) => change.added.add(node));
+      removed.forEach((node) => change.removed.add(node));
+    }
+    changes.forEach(({ added, removed }, watched) => {
+      const root = closestModelRoot(watched);
+      const model = root ? getInstance(root) : undefined;
+      const core = model ? getCore(model) : undefined;
+      core?.applyWatchedChanges(watched, added, removed);
+    });
+  }
   static #restoreModelName(element, previousModelName) {
     if (previousModelName === undefined) {
       delete element.dataset.model;
@@ -1329,4 +1447,4 @@ export {
   SprinculModel
 };
 
-//# debugId=4D79AA87E2BA8B9C64756E2164756E21
+//# debugId=D92C1B9726500DE064756E2164756E21

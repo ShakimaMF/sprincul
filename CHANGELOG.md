@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-15
+
+### Added
+
+- Add `data-watch` for an element whose contents change often, which wires the content added inside it and releases the content removed from it. See [Watching an element](https://github.com/ShakimaMF/sprincul/wiki/Wiring-Dynamic-Content#watching-an-element).
+- Add a `devMode` warning for `$emit()` event names with uppercase letters, which `data-on-*` can't listen for. See [Model Events](https://github.com/ShakimaMF/sprincul/wiki/Model-Events).
+
+### Changed
+
+- **Breaking:** `data-on-*` handlers receive the element with the attribute first and the event second, like binding callbacks. A handler that uses its event changes from `save(e)` to `save(el, e)`. See [Handler arguments](https://github.com/ShakimaMF/sprincul/wiki/Events#handler-arguments).
+- Calling `wire()` again on content you've rebuilt binds what's new and releases what's gone. See [Rebuilding wired content](https://github.com/ShakimaMF/sprincul/wiki/Wiring-Dynamic-Content#rebuilding-wired-content).
+- `unwire()` also releases wired content that was removed before it was called.
+
+### Removed
+
+- **Breaking:** Native `on*` attributes are no longer bound to model methods and are left to the browser. Use `data-on-*` instead (`onclick="save"` becomes `data-on-click="save"`).
+- **Breaking:** The transitional `processNativeEvents` option is removed.
+
+### Fixed
+
+- Fix content inside a custom element that hasn't mounted yet being bound to the surrounding model, by `wire()` or `data-watch`. A registered custom element's tag is a model root from the start.
+- Fix camelCase `data-bind-*` names such as `data-bind-buttonText` never updating; names now match state keys in any case, including in `beforeInit()`'s defaults.
+
 ## [0.5.0] - 2026-10-12
 
 ### Added
@@ -119,6 +142,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Initial release._
 
+[0.6.0]: https://github.com/ShakimaMF/sprincul/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ShakimaMF/sprincul/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/ShakimaMF/sprincul/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ShakimaMF/sprincul/compare/v0.2.1...v0.3.0

@@ -49,11 +49,10 @@ export default class Sprincul {
      *
      * @param {HTMLElement} element
      * @param devModeOption - See `SprinculOptions`; omitted, it falls back like any other option
-     * @param processNativeEventsOption - See `SprinculOptions`; omitted, it falls back like any other option
      *
      * @returns The model info, or `null` if the element couldn't be processed
      */
-    static processModelElement(element: HTMLElement, devModeOption?: boolean, processNativeEventsOption?: boolean): SprinculModelInfo | null;
+    static processModelElement(element: HTMLElement, devModeOption?: boolean): SprinculModelInfo | null;
     /**
      * Manually mount a model instance on a specific element
      *

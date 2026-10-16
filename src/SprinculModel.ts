@@ -1,6 +1,6 @@
 import { map, type MapStore } from "nanostores";
 import { SprinculCore } from "./SprinculCore";
-import { getCore, getInstance, getSignal } from "./registry";
+import { closestModelRoot, getCore, getInstance, getSignal, isModelRoot } from "./registry";
 import type { BoundDefaults, DataValue, SprinculModelOptions } from "./types";
 
 /** Returned by #parseData for a value that can't be read as the fallback's type. */
@@ -62,46 +62,44 @@ export default class SprinculModel {
 	beforeDestroy?(): void | Promise<void>;
 
 	/**
-	 * Bind the data-bind-* attributes and on* handlers in content added to this model.
+	 * Bind the data-bind-* and data-on-* attributes in content added to this model. Calling it again on content
+	 * you've rebuilt binds what's new and releases what's gone. A `data-watch` element does this on its own whenever
+	 * its contents change.
 	 *
 	 * Content not appended yet (a `DocumentFragment` or detached element) can be wired first and appended after:
-	 * its listeners attach now and its binding callbacks run in the next frame, once it's usually on the page.
+	 * its binding callbacks run in the next frame, once it's usually on the page.
 	 *
 	 * @param {HTMLElement | DocumentFragment} element - The content to bind, and its descendants.
 	 * @return {void} Does not return a value.
 	 * @throws {Error} If the method is called before the core is available.
 	 */
 	wire(element: HTMLElement | DocumentFragment): void {
-		const core = this.#core || getCore(this);
-		if (!core) {
-			throw new Error(
-				`[Sprincul] wire() called before core was available. Call it from beforeInit() or later instead.`,
-			);
-		}
-
-		core.processAddedElement(element);
+		this.#requireCore("wire").processAddedElement(element);
 	}
 
 	/**
-	 * Release what wire() registered within an element and its descendants.
-	 * Call this before discarding content a model rebuilds on every render.
+	 * Release what wire() registered for an element, including content since removed from it, and anything wired
+	 * inside it. Call this when you're done with wired content.
 	 *
 	 * Bindings from the model's own server-rendered markup are left alone, so a binding callback
 	 * can safely unwire the container it was handed.
 	 *
-	 * @param {HTMLElement} element - The element whose wired content to release. Call this before detaching it.
+	 * @param {HTMLElement} element - The element whose wired content to release.
 	 * @return {void} Does not return a value.
 	 * @throws {Error} If the method is called before the core is available.
 	 */
 	unwire(element: HTMLElement): void {
+		this.#requireCore("unwire").unwireElement(element);
+	}
+
+	#requireCore(method: string): SprinculCore {
 		const core = this.#core || getCore(this);
 		if (!core) {
 			throw new Error(
-				`[Sprincul] unwire() called before core was available. Call it from beforeInit() or later instead.`,
+				`[Sprincul] ${method}() called before core was available. Call it from beforeInit() or later instead.`,
 			);
 		}
-
-		core.unwireElement(element);
+		return core;
 	}
 
 	/**
@@ -167,7 +165,7 @@ export default class SprinculModel {
 	 * @return {T | null} The parent's instance, or null if this model isn't nested in a mounted model.
 	 */
 	$parent<T extends SprinculModel = SprinculModel>(): T | null {
-		const element = this.$el.parentElement?.closest<HTMLElement>("[data-model]");
+		const element = closestModelRoot(this.$el.parentElement);
 		return element ? ((getInstance(element) as T | undefined) ?? null) : null;
 	}
 
@@ -240,8 +238,7 @@ export default class SprinculModel {
 
 	/** The model a ref belongs to: a ref on a nested model's root is its parent's handle on that child. */
 	static #ownerOf(element: HTMLElement): Element | null {
-		const scope = element.hasAttribute("data-model") ? element.parentElement : element;
-		return scope?.closest("[data-model]") ?? null;
+		return closestModelRoot(isModelRoot(element) ? element.parentElement : element);
 	}
 
 	/**
@@ -268,6 +265,11 @@ export default class SprinculModel {
 		if (`on${type}` in this.$el) {
 			(this.#core || getCore(this))?.warn(
 				`$emit("${type}") uses a native event name, so it mixes with the native events bubbling through the same elements.`,
+			);
+		}
+		if (/[A-Z]/.test(type)) {
+			(this.#core || getCore(this))?.warn(
+				`$emit("${type}") can't be heard by data-on-* because HTML lowercases attribute names; use a lowercase name such as "${type.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}".`,
 			);
 		}
 

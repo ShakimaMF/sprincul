@@ -6,53 +6,49 @@ const tick = () => new Promise<void>((resolve) => queueMicrotask(resolve));
 
 describe("Sprincul - setOption()", () => {
 	test("sets a page-wide default that init() uses", () => {
-		class Modern extends SprinculModel {
-			save() {}
-		}
+		class Modern extends SprinculModel {}
 		Sprincul.register("Modern", Modern);
-		container.innerHTML = html`<div data-model="Modern"><button onclick="save"></button></div>`;
+		container.innerHTML = html`<div data-model="Modern"></div>`;
 
-		Sprincul.setOption("processNativeEvents", false);
-		Sprincul.init();
+		let models: { instance?: unknown }[] = [];
+		Sprincul.setOption("devMode", true);
+		Sprincul.init({ onReady: (ready: typeof models) => (models = ready) });
 
-		expect(container.querySelector("button")!.getAttribute("onclick")).toBe("save");
+		expect(models[0]!.instance).toBeInstanceOf(Modern);
 	});
 
 	test("reaches custom elements, which mount without init()", async () => {
-		Sprincul.setOption("processNativeEvents", false);
+		Sprincul.setOption("devMode", true);
 
 		class Widget extends SprinculModel {
 			static options = { customElement: "widget-element" };
-
-			save() {}
 		}
 		Sprincul.register("Widget", Widget);
-		container.innerHTML = html`<widget-element><button onclick="save"></button></widget-element>`;
+		container.innerHTML = html`<widget-element></widget-element>`;
 		await tick();
 
-		expect(container.querySelector("button")!.getAttribute("onclick")).toBe("save");
+		expect((container.querySelector("widget-element") as any).model).toBeInstanceOf(Widget);
 	});
 
 	test("a model's static options and a call's options override it, in that order", () => {
-		class Legacy extends SprinculModel {
-			static options = { processNativeEvents: true };
-
-			save() {}
+		class Quiet extends SprinculModel {
+			static options = { devMode: false };
 		}
-		Sprincul.register("Legacy", Legacy);
-		container.innerHTML = html`
-			<div data-model="Legacy"><button id="by-class" onclick="save"></button></div>
-			<div id="by-call"><button onclick="save"></button></div>
-		`;
+		Sprincul.register("Quiet", Quiet);
+		container.innerHTML = html`<div data-model="Quiet"></div>
+			<div id="by-call"></div>`;
 
-		Sprincul.setOption("processNativeEvents", false);
-		const warn = spyOn(console, "warn").mockImplementation(() => {});
-		Sprincul.init({ root: container });
-		Sprincul.mount(container.querySelector<HTMLElement>("#by-call")!, Legacy, { processNativeEvents: false });
-		warn.mockRestore();
+		let byClass: { instance?: unknown }[] = [];
+		let byCall: { instance?: unknown } = {};
+		Sprincul.setOption("devMode", true);
+		Sprincul.init({ root: container, onReady: (ready: typeof byClass) => (byClass = ready) });
+		Sprincul.mount(container.querySelector<HTMLElement>("#by-call")!, Quiet, {
+			devMode: true,
+			onReady: (info: typeof byCall) => (byCall = info),
+		});
 
-		expect(container.querySelector("#by-class")!.hasAttribute("onclick")).toBe(false);
-		expect(container.querySelector("#by-call button")!.hasAttribute("onclick")).toBe(true);
+		expect(byClass[0]!.instance).toBeUndefined();
+		expect(byCall.instance).toBeInstanceOf(Quiet);
 	});
 
 	test("devMode set after a custom element is defined still exposes its instance", async () => {
@@ -110,9 +106,9 @@ describe("Sprincul - setOption()", () => {
 
 	test("warns about an unknown option and ignores it", () => {
 		const warn = spyOn(console, "warn").mockImplementation(() => {});
-		Sprincul.setOption("keepDataOn", false);
+		Sprincul.setOption("processNativeEvents", false);
 
-		expect(warn).toHaveBeenCalledWith('[Sprincul] setOption() was given an unknown option "keepDataOn".');
+		expect(warn).toHaveBeenCalledWith('[Sprincul] setOption() was given an unknown option "processNativeEvents".');
 		warn.mockRestore();
 	});
 });

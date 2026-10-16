@@ -156,10 +156,12 @@ describe("Sprincul - Subtree mounting", () => {
 			const errorSpy = spyOn(console, "error").mockImplementation(() => {});
 			const log: string[] = [];
 			let mounts = 0;
+			let brokenSignal: AbortSignal | undefined;
 
 			class Broken extends SprinculModel {
 				afterInit() {
 					mounts++;
+					brokenSignal ??= this.$signal;
 				}
 
 				noop() {}
@@ -181,16 +183,29 @@ describe("Sprincul - Subtree mounting", () => {
 				<div data-model="Logged" data-label="sibling"></div>`;
 			Sprincul.init({ root: container });
 
-			// Make the core's own cleanup throw when it releases this listener
-			container.querySelector("button")!.removeEventListener = () => {
-				throw new Error("boom");
-			};
+			// Make Sprincul's own cleanup throw when it aborts this model's $signal
+			const abort = AbortController.prototype.abort;
+			const abortSpy = spyOn(AbortController.prototype, "abort").mockImplementation(function (
+				this: AbortController,
+				reason?: unknown,
+			) {
+				if (this.signal === brokenSignal) throw new Error("boom");
+				abort.call(this, reason);
+			});
 
-			return { errorSpy, log, mounts: () => mounts };
+			return {
+				log,
+				mounts: () => mounts,
+				restore: () => {
+					errorSpy.mockRestore();
+					abortSpy.mockRestore();
+				},
+				errorSpy,
+			};
 		}
 
 		test("sync: the rest of the subtree is still torn down and the element can be mounted again", async () => {
-			const { errorSpy, log, mounts } = mountWithBrokenTeardown(false);
+			const { errorSpy, log, mounts, restore } = mountWithBrokenTeardown(false);
 
 			await Sprincul.unmount(container);
 
@@ -198,11 +213,11 @@ describe("Sprincul - Subtree mounting", () => {
 			expect(errorSpy).toHaveBeenCalled();
 			Sprincul.init({ root: container });
 			expect(mounts()).toBe(2);
-			errorSpy.mockRestore();
+			restore();
 		});
 
 		test("async: its children are still torn down and the returned promise resolves", async () => {
-			const { errorSpy, log, mounts } = mountWithBrokenTeardown(true);
+			const { errorSpy, log, mounts, restore } = mountWithBrokenTeardown(true);
 
 			await Sprincul.unmount(container);
 
@@ -210,7 +225,7 @@ describe("Sprincul - Subtree mounting", () => {
 			expect(errorSpy).toHaveBeenCalled();
 			Sprincul.init({ root: container });
 			expect(mounts()).toBe(2);
-			errorSpy.mockRestore();
+			restore();
 		});
 	});
 

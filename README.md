@@ -13,8 +13,7 @@ Sprincul is a lightweight, browser-side JS framework for adding reactivity to HT
 
 - State and reactivity are powered by plain JavaScript classes.
 - Uses [nanostores](https://github.com/nanostores/nanostores) under the hood for efficient reactive state management.
-- Bind state to the DOM with standard `data-*` attributes.
-- Bind events with `data-on-click`, `data-on-input`, and so on; Sprincul converts them into proper listeners on your model instances and they work under a strict CSP.
+- Bind state and events to the DOM with standard `data-*` attributes.
 - Supports computed properties that automatically update when dependencies change.
 - Turn a model into a custom element with the `customElement` option, so it mounts and cleans up after itself.
 - Includes a minimal global store for cross-component communication.
@@ -47,7 +46,7 @@ Sprincul is distributed from GitHub, pinned to a release tag. No npm package.
 
 ```js
 // main.js
-import { Sprincul } from "https://esm.sh/gh/ShakimaMF/sprincul@v0.5.0";
+import { Sprincul } from "https://esm.sh/gh/ShakimaMF/sprincul@v0.6.0";
 import Counter from "./Counter.js";
 
 Sprincul.register("Counter", Counter);
@@ -57,18 +56,18 @@ Sprincul.init();
 ### Using a package manager
 
 ```bash
-npm install github:ShakimaMF/sprincul#v0.5.0
+npm install github:ShakimaMF/sprincul#v0.6.0
 # or
-pnpm add github:ShakimaMF/sprincul#v0.5.0
+pnpm add github:ShakimaMF/sprincul#v0.6.0
 # or
-bun add github:ShakimaMF/sprincul#v0.5.0
+bun add github:ShakimaMF/sprincul#v0.6.0
 ```
 
 ```js
 import { Sprincul } from "sprincul";
 ```
 
-Swap `v0.5.0` for whichever [release tag](https://github.com/ShakimaMF/sprincul/tags) you want.
+Swap `v0.6.0` for whichever [release tag](https://github.com/ShakimaMF/sprincul/tags) you want.
 
 ## Learn more
 
@@ -96,7 +95,6 @@ Try the [live demo](https://shakimamf.github.io/sprincul/), a product listing wi
 
 ## Tips for success
 
-- Bind events with `data-on-*` and call `Sprincul.setOption("processNativeEvents", false)` before registering models. Binding native `on*` attributes is deprecated, and this opts in to the future behavior now.
 - Pick one direction for updates and stay consistent. If bindings render the UI, let them own the DOM. If user input updates state, avoid mixing that with ad hoc DOM manipulation.
 
 ## License
