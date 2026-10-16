@@ -10,7 +10,17 @@ import type {
 	SprinculMountOptions,
 	SprinculOptions,
 } from "./types";
-import { abortSignal, deleteCore, deleteInstance, getCore, getInstance, setCore, setInstance } from "./registry";
+import {
+	abortSignal,
+	addModelTag,
+	closestModelRoot,
+	deleteCore,
+	deleteInstance,
+	getCore,
+	getInstance,
+	setCore,
+	setInstance,
+} from "./registry";
 
 /**
  * @class Sprincul
@@ -173,6 +183,7 @@ export default class Sprincul {
 			return;
 		}
 		Sprincul.#customElements.set(name, modelName);
+		addModelTag(name);
 	}
 
 	static #isCustomElement(element: Element): boolean {
@@ -735,7 +746,7 @@ export default class Sprincul {
 			if (added.length === 0 && removed.length === 0) continue;
 
 			// A change inside a nested model is that model's, unless the nested model watches it itself
-			if (target.closest("[data-model]") !== watched.closest("[data-model]")) continue;
+			if (closestModelRoot(target) !== closestModelRoot(watched)) continue;
 
 			let change = changes.get(watched);
 			if (!change) {
@@ -747,7 +758,7 @@ export default class Sprincul {
 		}
 
 		changes.forEach(({ added, removed }, watched) => {
-			const root = watched.closest<HTMLElement>("[data-model]");
+			const root = closestModelRoot(watched);
 			const model = root ? getInstance(root) : undefined;
 			const core = model ? getCore(model) : undefined;
 			core?.applyWatchedChanges(watched, added, removed);

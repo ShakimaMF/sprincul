@@ -54,3 +54,23 @@ export function abortSignal(model: SprinculModel): void {
 	if (controller) return controller.abort();
 	abortedUnread.add(model);
 }
+
+/**
+ * Matches a model root: an element with `data-model`, or a registered custom element's tag, which is a model root
+ * before it has mounted too.
+ */
+let modelRootSelector = "[data-model]";
+
+export function addModelTag(tag: string): void {
+	// Custom element names can hold characters a selector can't take raw, such as "."
+	modelRootSelector += `, ${tag.replace(/[^\w -￿-]/g, "\\$&")}`;
+}
+
+/** The nearest model root at or above `element`, mounted or not. */
+export function closestModelRoot(element: Element | null | undefined): HTMLElement | null {
+	return element?.closest<HTMLElement>(modelRootSelector) ?? null;
+}
+
+export function isModelRoot(element: Element): boolean {
+	return element.matches(modelRootSelector);
+}

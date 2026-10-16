@@ -263,4 +263,97 @@ describe("Sprincul - Custom elements", () => {
 		expect(warn).not.toHaveBeenCalled();
 		warn.mockRestore();
 	});
+
+	describe("as a model boundary before it has mounted", () => {
+		const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+		function defineModels() {
+			const calls: string[] = [];
+			const inners: any[] = [];
+			class Outer extends SprinculModel {
+				hit() {
+					calls.push("outer:hit");
+				}
+			}
+			class Inner extends SprinculModel {
+				static options = { customElement: "inner-box" };
+
+				afterInit() {
+					inners.push(this);
+				}
+
+				hit() {
+					calls.push("inner:hit");
+				}
+			}
+			class Deepest extends SprinculModel {
+				static options = { customElement: "deepest-box" };
+
+				hit() {
+					calls.push("deepest:hit");
+				}
+			}
+			Sprincul.registerAll({ Outer, Inner, Deepest });
+
+			container.innerHTML = html`<div data-model="Outer"><div data-watch id="list"></div></div>`;
+			let outer: any;
+			Sprincul.init({ root: container, devMode: true, onReady: (models: any[]) => (outer = models[0].instance) });
+			return { calls, inners, outer, list: container.querySelector<HTMLElement>("#list")! };
+		}
+
+		test("content inside it added to a data-watch element is its own, not the outer model's", async () => {
+			// Browsers run the watcher before the custom element mounts; happy-dom mounts it first, so the wire() test guards this
+			const { calls, list } = defineModels();
+
+			list.insertAdjacentHTML("beforeend", html`<inner-box><button data-on-click="hit">x</button></inner-box>`);
+			await settle();
+			list.querySelector("button")!.click();
+
+			expect(calls).toEqual(["inner:hit"]);
+		});
+
+		test("content inside it wired by the outer model is its own", async () => {
+			const { calls, outer } = defineModels();
+			const section = document.createElement("section");
+			outer.$el.appendChild(section);
+
+			section.innerHTML = html`<inner-box><button data-on-click="hit">x</button></inner-box>`;
+			outer.wire(section);
+			await settle();
+			section.querySelector("button")!.click();
+
+			expect(calls).toEqual(["inner:hit"]);
+		});
+
+		test("custom elements nested and inserted at once each own their handlers", async () => {
+			const { calls, list } = defineModels();
+
+			list.insertAdjacentHTML(
+				"beforeend",
+				html`<inner-box>
+					<button id="inner" data-on-click="hit">x</button>
+					<deepest-box><button id="deepest" data-on-click="hit">x</button></deepest-box>
+				</inner-box>`,
+			);
+			await settle();
+			list.querySelector<HTMLElement>("#inner")!.click();
+			list.querySelector<HTMLElement>("#deepest")!.click();
+
+			expect(calls).toEqual(["inner:hit", "deepest:hit"]);
+		});
+
+		test("the outer model's $ref() leaves out refs inside it, and $parent() from inside reaches the outer model", async () => {
+			const { inners, outer } = defineModels();
+
+			const box = document.createElement("inner-box");
+			box.innerHTML = html`<span data-ref="label"></span>`;
+			expect(outer.$ref("label")).toBeNull();
+
+			outer.$el.appendChild(box);
+			expect(outer.$ref("label")).toBeNull();
+			await settle();
+
+			expect(inners[0]!.$parent()).toBe(outer);
+		});
+	});
 });
