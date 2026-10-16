@@ -1,5 +1,6 @@
 import { computed, type ReadableAtom, type MapStore } from "nanostores";
 import type SprinculModel from "./SprinculModel";
+import { closestModelRoot } from "./registry";
 import type { BoundDefaults } from "./types";
 
 /**
@@ -303,12 +304,13 @@ export class SprinculCore {
 
 	#processTree(container: HTMLElement | DocumentFragment, options: ProcessOptions) {
 		/*
-		 * An element is this model's when its nearest [data-model] (itself included) is this model's root.
+		 * An element is this model's when its nearest model root (itself included) is this model's root. A custom
+		 * element of a registered model is a model root before it has mounted too.
 		 * Content not in the model yet has no such root above it, so there it's the elements with none at all.
 		 * Either way, nested model roots and everything inside them belong to their own instance.
 		 */
 		const owner = this.instance.$el.contains(container) ? this.instance.$el : null;
-		const isOwned = (element: Element) => element.closest("[data-model]") === owner;
+		const isOwned = (element: Element) => closestModelRoot(element) === owner;
 
 		if (container instanceof HTMLElement && isOwned(container)) {
 			this.#processElementBindings(container, options);

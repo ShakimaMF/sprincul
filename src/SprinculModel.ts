@@ -1,6 +1,6 @@
 import { map, type MapStore } from "nanostores";
 import { SprinculCore } from "./SprinculCore";
-import { getCore, getInstance, getSignal } from "./registry";
+import { closestModelRoot, getCore, getInstance, getSignal, isModelRoot } from "./registry";
 import type { BoundDefaults, DataValue, SprinculModelOptions } from "./types";
 
 /** Returned by #parseData for a value that can't be read as the fallback's type. */
@@ -165,7 +165,7 @@ export default class SprinculModel {
 	 * @return {T | null} The parent's instance, or null if this model isn't nested in a mounted model.
 	 */
 	$parent<T extends SprinculModel = SprinculModel>(): T | null {
-		const element = this.$el.parentElement?.closest<HTMLElement>("[data-model]");
+		const element = closestModelRoot(this.$el.parentElement);
 		return element ? ((getInstance(element) as T | undefined) ?? null) : null;
 	}
 
@@ -238,8 +238,7 @@ export default class SprinculModel {
 
 	/** The model a ref belongs to: a ref on a nested model's root is its parent's handle on that child. */
 	static #ownerOf(element: HTMLElement): Element | null {
-		const scope = element.hasAttribute("data-model") ? element.parentElement : element;
-		return scope?.closest("[data-model]") ?? null;
+		return closestModelRoot(isModelRoot(element) ? element.parentElement : element);
 	}
 
 	/**
